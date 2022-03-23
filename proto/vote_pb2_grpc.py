@@ -27,12 +27,12 @@ class eVotingStub(object):
         self.CreateElection = channel.unary_unary(
                 '/voting.eVoting/CreateElection',
                 request_serializer=vote__pb2.Election.SerializeToString,
-                response_deserializer=vote__pb2.ElectionStatus.FromString,
+                response_deserializer=vote__pb2.Status.FromString,
                 )
         self.CastVote = channel.unary_unary(
                 '/voting.eVoting/CastVote',
                 request_serializer=vote__pb2.Vote.SerializeToString,
-                response_deserializer=vote__pb2.VoteStatus.FromString,
+                response_deserializer=vote__pb2.Status.FromString,
                 )
         self.GetResult = channel.unary_unary(
                 '/voting.eVoting/GetResult',
@@ -90,12 +90,12 @@ def add_eVotingServicer_to_server(servicer, server):
             'CreateElection': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateElection,
                     request_deserializer=vote__pb2.Election.FromString,
-                    response_serializer=vote__pb2.ElectionStatus.SerializeToString,
+                    response_serializer=vote__pb2.Status.SerializeToString,
             ),
             'CastVote': grpc.unary_unary_rpc_method_handler(
                     servicer.CastVote,
                     request_deserializer=vote__pb2.Vote.FromString,
-                    response_serializer=vote__pb2.VoteStatus.SerializeToString,
+                    response_serializer=vote__pb2.Status.SerializeToString,
             ),
             'GetResult': grpc.unary_unary_rpc_method_handler(
                     servicer.GetResult,
@@ -159,7 +159,7 @@ class eVoting(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/voting.eVoting/CreateElection',
             vote__pb2.Election.SerializeToString,
-            vote__pb2.ElectionStatus.FromString,
+            vote__pb2.Status.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -176,7 +176,7 @@ class eVoting(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/voting.eVoting/CastVote',
             vote__pb2.Vote.SerializeToString,
-            vote__pb2.VoteStatus.FromString,
+            vote__pb2.Status.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

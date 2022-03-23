@@ -1,8 +1,8 @@
 from concurrent import futures
 import logging
 import grpc
-import sys, os
-sys.path.append(os.path.abspath('./proto'))
+import sys
+sys.path.append('proto')
 import proto.vote_pb2 as vote
 import proto.vote_pb2_grpc as vote_grpc
 
@@ -32,7 +32,6 @@ def serve():
 if __name__ == '__main__':
     logging.basicConfig()
     try:
-
         serve()
     except KeyboardInterrupt:
         print("Terminated")
