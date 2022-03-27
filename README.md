@@ -1,4 +1,10 @@
 # FTC_Part1
+## Setup the environment
+```
+$ python -m pip install --upgrade pip
+$ python -m pip install grpcio
+$ python -m pip install grpcio-tools
+```
 ## Make
 `$ make`  
 Regenerates the followings:  
