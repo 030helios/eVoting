@@ -2,7 +2,7 @@ syntax = "proto2";
 package voting;
 import "google/protobuf/timestamp.proto";
 
-message Voter {
+ message Voter {
   required string name = 1;
   required string group = 2;
   required bytes public_key = 3;
@@ -13,8 +13,9 @@ message Voter {
  message Status {
   required int32 code = 1;
  }
-
  service eVoting {
+  rpc RegisterVoter(Voter) returns (Status);
+  rpc UnregisterVoter(VoterName) returns (Status);
   rpc PreAuth (VoterName) returns (Challenge);
   rpc Auth (AuthRequest) returns (AuthToken);
   rpc CreateElection (Election) returns (Status);
