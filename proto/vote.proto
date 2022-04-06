@@ -14,8 +14,6 @@ import "google/protobuf/timestamp.proto";
   required int32 code = 1;
  }
  service eVoting {
-  rpc RegisterVoter(Voter) returns (Status);
-  rpc UnregisterVoter(VoterName) returns (Status);
   rpc PreAuth (VoterName) returns (Challenge);
   rpc Auth (AuthRequest) returns (AuthToken);
   rpc CreateElection (Election) returns (Status);

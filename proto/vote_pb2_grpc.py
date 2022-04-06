@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-import vote_pb2 as vote__pb2
+from . import vote_pb2 as vote__pb2
 
 
 class eVotingStub(object):
@@ -14,16 +14,6 @@ class eVotingStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.RegisterVoter = channel.unary_unary(
-                '/voting.eVoting/RegisterVoter',
-                request_serializer=vote__pb2.Voter.SerializeToString,
-                response_deserializer=vote__pb2.Status.FromString,
-                )
-        self.UnregisterVoter = channel.unary_unary(
-                '/voting.eVoting/UnregisterVoter',
-                request_serializer=vote__pb2.VoterName.SerializeToString,
-                response_deserializer=vote__pb2.Status.FromString,
-                )
         self.PreAuth = channel.unary_unary(
                 '/voting.eVoting/PreAuth',
                 request_serializer=vote__pb2.VoterName.SerializeToString,
@@ -53,18 +43,6 @@ class eVotingStub(object):
 
 class eVotingServicer(object):
     """Missing associated documentation comment in .proto file."""
-
-    def RegisterVoter(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def UnregisterVoter(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
 
     def PreAuth(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -99,16 +77,6 @@ class eVotingServicer(object):
 
 def add_eVotingServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'RegisterVoter': grpc.unary_unary_rpc_method_handler(
-                    servicer.RegisterVoter,
-                    request_deserializer=vote__pb2.Voter.FromString,
-                    response_serializer=vote__pb2.Status.SerializeToString,
-            ),
-            'UnregisterVoter': grpc.unary_unary_rpc_method_handler(
-                    servicer.UnregisterVoter,
-                    request_deserializer=vote__pb2.VoterName.FromString,
-                    response_serializer=vote__pb2.Status.SerializeToString,
-            ),
             'PreAuth': grpc.unary_unary_rpc_method_handler(
                     servicer.PreAuth,
                     request_deserializer=vote__pb2.VoterName.FromString,
@@ -143,40 +111,6 @@ def add_eVotingServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class eVoting(object):
     """Missing associated documentation comment in .proto file."""
-
-    @staticmethod
-    def RegisterVoter(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/voting.eVoting/RegisterVoter',
-            vote__pb2.Voter.SerializeToString,
-            vote__pb2.Status.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
-
-    @staticmethod
-    def UnregisterVoter(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/voting.eVoting/UnregisterVoter',
-            vote__pb2.VoterName.SerializeToString,
-            vote__pb2.Status.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
     def PreAuth(request,
