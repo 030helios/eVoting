@@ -1,3 +1,6 @@
+from secrets import choice
+import sys
+sys.path.append('proto')
 from encodings import utf_8
 from rsa import PublicKey
 import nacl.utils
@@ -12,25 +15,24 @@ import logging
 from concurrent import futures
 import proto.vote_pb2 as vote
 import proto.vote_pb2_grpc as vote_grpc
-import sys
 import os
 import ast
-sys.path.append('proto')
+from datetime import datetime, timezone, timedelta
+from google.protobuf.timestamp_pb2 import Timestamp
 
-
+tz = timezone(timedelta(hours=+8))
 Tokens = {}
 Voters = {}
 Elections = {}
 Challenges = {}
+Ballots = {}
 
 
-def popup(msg):
+def PopupWin(msg):
     popup = tk.Toplevel()
     popup.title("Message")
     popup.geometry('240x80+200+200')
-    label = tk.Label(popup, text=msg)
-    label.config(font=("Arial", 12))
-    label.pack()
+    tk.Label(popup, text=msg, font=("Arial", 12)).pack()
     return
 
 
@@ -41,13 +43,13 @@ def RegisterVoter(name_var, group_var, key_var):
     try:
         if name not in Voters.keys():
             Voters[name] = (group, key)
-            popup("Register success!")
+            PopupWin("Register success!")
             return 0
         else:
-            popup("Voter Name already exists!")
+            PopupWin("Voter Name already exists!")
             return 1
     except:
-        popup("Undefined error.")
+        PopupWin("Undefined error.")
         return 2
 
 
@@ -56,13 +58,13 @@ def UnregisterVoter(name_var):
     try:
         if name in Voters.keys():
             del Voters[name]
-            popup("Unregister Success!")
+            PopupWin("Unregister Success!")
             return 0
         else:
-            popup("Voter Name does not exist!")
+            PopupWin("Voter Name does not exist!")
             return 1
     except:
-        popup("Undefined error.")
+        PopupWin("Undefined error.")
         return 2
 
 
@@ -80,28 +82,28 @@ def RegisterThread():
     while command == "":
         reg_win = tk.Tk()
         reg_win.title("Voter Management")
-        reg_win.geometry('640x240')
+        reg_win.geometry('640x320')
 
         # Input Voter name
-        name_label = tk.Label(reg_win, text='Voter name:')
-        name_label.place(relx=0.05, rely=0.2, relwidth=0.15, height=30)
+        name_label = tk.Label(reg_win, text='Voter name :', font=("Arial", 12))
+        name_label.place(relx=0.1, rely=0.18, relwidth=0.15, height=30)
         name_var = tk.StringVar()
         votername_textbox = tk.Entry(reg_win, textvariable=name_var)
-        votername_textbox.place(relx=0.25, rely=0.2, relwidth=0.25, height=30)
+        votername_textbox.place(relx=0.3, rely=0.18, relwidth=0.25, height=30)
 
         # Input Voter group
-        group_label = tk.Label(reg_win, text='Voter group:')
-        group_label.place(relx=0.05, rely=0.3, relwidth=0.15, height=30)
+        group_label = tk.Label(reg_win, text='Voter group :', font=("Arial", 12))
+        group_label.place(relx=0.1, rely=0.3, relwidth=0.15, height=30)
         group_var = tk.StringVar()
         votergroup_textbox = tk.Entry(reg_win, textvariable=group_var)
-        votergroup_textbox.place(relx=0.25, rely=0.3, relwidth=0.25, height=30)
+        votergroup_textbox.place(relx=0.3, rely=0.3, relwidth=0.25, height=30)
 
         # Input public key
-        key_label = tk.Label(reg_win, text='Public key:')
-        key_label.place(relx=0.05, rely=0.4, relwidth=0.15, height=30)
+        key_label = tk.Label(reg_win, text='Public key :', font=("Arial", 12))
+        key_label.place(relx=0.1, rely=0.42, relwidth=0.15, height=30)
         key_var = tk.StringVar()
         key_textbox = tk.Entry(reg_win, textvariable=key_var)
-        key_textbox.place(relx=0.25, rely=0.4, relwidth=0.25, height=30)
+        key_textbox.place(relx=0.3, rely=0.42, relwidth=0.25, height=30)
 
         # Voter list
         s = ttk.Style()
@@ -123,10 +125,10 @@ def RegisterThread():
         tree.place(relx=0.65, rely=0.1, relwidth=0.3, relheight=0.8)
 
         # Button
-        btn1 = tk.Button(reg_win, text="Register", command=lambda: [
+        btn1 = tk.Button(reg_win, text="Register", font=("Arial", 16), command=lambda: [
                          RegisterVoter(name_var, group_var, key_var), UpdateListBox(tree)])
         btn1.place(relx=0.1, rely=0.7, relwidth=0.2, relheight=0.2)
-        btn2 = tk.Button(reg_win, text="Unregister", command=lambda: [
+        btn2 = tk.Button(reg_win, text="Unregister", font=("Arial", 16), command=lambda: [
                          UnregisterVoter(name_var), UpdateListBox(tree)])
         btn2.place(relx=0.4, rely=0.7, relwidth=0.2, relheight=0.2)
 
@@ -134,6 +136,26 @@ def RegisterThread():
         command = input(
             "<Press Enter to manage the voters> <Input any string to quit the management> ")
     return
+
+
+def Count_Ballot(elecname):
+    '''
+    Ballots
+    |   elect_name1
+    |   |   voter1 : <his_choice>
+    |   |   voter2 : <his_choice>
+    |   |   .
+    |   |   .
+    |   elect_name2
+    |   |   voter1 : <his_choice>
+    |   |   voter1 : <his_choice>
+    |   |
+    '''
+    choices={}
+    for selection in Ballots[elecname].values():
+        choices[selection] = choices.get(selection,0)+1
+    
+    return [vote.VoteCount(choice_name=choise, count=n) for choise,n in choices.items()]
 
 
 class eVoting(vote_grpc.eVotingServicer):
@@ -147,42 +169,104 @@ class eVoting(vote_grpc.eVotingServicer):
         name = request.name.name
         response = request.response.value
         verify_key = VerifyKey(Voters[name][1])
-        if Challenges[name] == verify_key.verify(response):
-            popup("Pass.")
+        if Challenges[name] == verify_key.verify(response): #try except?
+            #PopupWin("Pass.")
             b = os.urandom(4)
             Tokens[name] = b
             return vote.AuthToken(value=b)
         else:
-            popup("Fail.")
+            PopupWin("Fail.")
             return vote.AuthToken(value=b'\x00\x00')
 
     def CreateElection(self, request, context):
         try:
-            name = request.name
+            elecname = request.name
             token = request.token.value
-            if token == Tokens[name]:
+            if token in Tokens.values():
                 try:
-                    groups = request.groups = 2
-                    choices = request.choices = 3
+                    groups = request.groups
+                    choices = request.choices
                     end_date = request.end_date
-                    Elections[name] = (groups, choices, end_date, token)
-                    popup("Election created successfully!")
-                    return vote.ElectionStatus(code=0)
+                    print("new election : "+elecname+", end at:"+str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
+                    Elections[elecname] = (groups, choices, end_date, token)
+                    Ballots[elecname] = {}
+                    #PopupWin("Election created successfully!")
+                    return vote.Status(code=0)
                 except:
-                    popup("Missing groups or choices specification!")
-                    return vote.ElectionStatus(code=2)
+                    #PopupWin("Missing groups or choices specification!")
+                    return vote.Status(code=2)
             else:
-                popup("invalid authentication token!")
-                return vote.ElectionStatus(code=1)
-        except:
-            popup("Undefined error.")
-            return vote.ElectionStatus(code=3)
+                #PopupWin("invalid authentication token!")
+                return vote.Status(code=1)
+        except Exception as e:
+            #PopupWin("Undefined error.")
+            print("Create Election error: " + str(e))
+            return vote.Status(code=3)
 
     def CastVote(self, request, context):
-        return vote.VoteStatus(code=1)
+        '''
+        Status.code=0 : Successful vote
+        Status.code=1 : Invalid authentication token
+        Status.code=2 : Invalid election name
+        Status.code=3 : The voter's group is not allowed in the election
+        Status.code=4 : A previous vote has been cast.
+        '''
+        try:
+            token = request.token.value
+            elecname = request.election_name
+            votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
+            choice_name = request.choice_name
+            print(votername+"->"+elecname+"->"+choice_name)
+            if token not in Tokens.values():
+                return vote.Status(code=1)
+            if elecname not in Elections.keys():
+                return vote.Status(code=2)
+            if Voters[votername][0] not in Elections[elecname][0]:
+                return vote.Status(code=3)
+                '''
+                Ballots
+                |   elect_name1
+                |   |   voter1 : <his_choice>
+                |   |   voter2 : <his_choice>
+                |   |   .
+                |   |   .
+                |   elect_name2
+                |   |   voter1 : <his_choice>
+                |   |   voter1 : <his_choice>
+                |   |
+                '''
+            if votername in Ballots[elecname].keys():
+                return vote.Status(code=4)
+            if choice_name not in Elections[elecname][1]:   #choice not exist
+                return vote.Status(code=5)
+            Ballots[elecname][votername] = choice_name
+            return vote.Status(code=0)
+
+        except Exception as e:
+            print("Cast error: " + str(e))
+            return vote.Status(code=5)
 
     def GetResult(self, request, context):
-        return vote.ElectionResult(status=1, count=0)
+        '''
+        ElectionReuslt.status = 0: Sucess
+        ElectionResult.status = 1: Non-existent election
+        ElectionResult.status = 2: The election is still ongoing. 
+                                   Election result is not available yet.
+        '''
+        try:
+            elecname = request.name
+            timestamp = Timestamp()
+            timestamp.FromDatetime(datetime.now().astimezone(tz))
+
+            if elecname not in Elections.keys():
+                return vote.ElectionResult(status=1, count=[])
+            if Elections[elecname][2].seconds > timestamp.seconds:
+                return vote.ElectionResult(status=2, count=[])
+            
+            return vote.ElectionResult(status=0, count=Count_Ballot(elecname))
+        except Exception as e:
+            print("Result query error: " + str(e))
+            return vote.ElectionResult(status=3, count=[])
 
 
 def serve():

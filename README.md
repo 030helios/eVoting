@@ -1,9 +1,10 @@
-# FTC_Part1
+# FTC eVoting System
 ## Setup the environment
 ```
 $ python -m pip install --upgrade pip
 $ python -m pip install grpcio
 $ python -m pip install grpcio-tools
+$ pip install pynacl
 ```
 ## Make
 `$ make`  
