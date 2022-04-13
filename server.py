@@ -1,40 +1,41 @@
-import sys
-from secrets import choice
-
-sys.path.append('proto')
 import ast
 import logging
 import os
+import sys
 import threading
 import tkinter as tk
+from collections import deque
 from concurrent import futures
-from datetime import date, datetime, timedelta, timezone
-from encodings import utf_8
-from heapq import heappop, heappush
+from datetime import datetime, timedelta, timezone
+from secrets import choice
 from tkinter import ttk
 from tokenize import group
 
 import grpc
-import nacl.utils
 from google.protobuf.timestamp_pb2 import Timestamp
 from nacl.public import Box, PrivateKey
 from nacl.signing import VerifyKey
-from rsa import PublicKey
 
 import proto.vote_pb2 as vote
 import proto.vote_pb2_grpc as vote_grpc
 
+sys.path.append('proto')
+
+
 tz = timezone(timedelta(hours=+8))
 Tokens = {}
+Due = deque()
 Voters = {}
 Elections = {}
 Challenges = {}
 Ballots = {}
 
+
 def checkToken():
-    for key in list(Tokens.keys()):
-        if Tokens[key][1] < datetime.now():
-            del Tokens[key]
+    while Due:
+        if Due[0][0] < datetime.now():
+            del Tokens[Due[0][1]]
+            Due.popleft()
 
 
 def PopupWin(msg):
@@ -101,7 +102,8 @@ def RegisterThread():
         votername_textbox.place(relx=0.3, rely=0.18, relwidth=0.25, height=30)
 
         # Input Voter group
-        group_label = tk.Label(reg_win, text='Voter group :', font=("Arial", 12))
+        group_label = tk.Label(
+            reg_win, text='Voter group :', font=("Arial", 12))
         group_label.place(relx=0.1, rely=0.3, relwidth=0.15, height=30)
         group_var = tk.StringVar()
         votergroup_textbox = tk.Entry(reg_win, textvariable=group_var)
@@ -160,11 +162,11 @@ def Count_Ballot(elecname):
     |   |   voter1 : <his_choice>
     |   |
     '''
-    choices={}
+    choices = {}
     for selection in Ballots[elecname].values():
-        choices[selection] = choices.get(selection,0)+1
-    
-    return [vote.VoteCount(choice_name=choise, count=n) for choise,n in choices.items()]
+        choices[selection] = choices.get(selection, 0)+1
+
+    return [vote.VoteCount(choice_name=choise, count=n) for choise, n in choices.items()]
 
 
 class eVoting(vote_grpc.eVotingServicer):
@@ -180,9 +182,10 @@ class eVoting(vote_grpc.eVotingServicer):
         verify_key = VerifyKey(Voters[name][1])
         try:
             assert Challenges[name] == verify_key.verify(response)
-            #PopupWin("Pass.")
+            # PopupWin("Pass.")
             b = os.urandom(4)
-            Tokens[name] = (b, datetime.now()+timedelta(hours=1))
+            Tokens[name] = b
+            Due.append([datetime.now()+timedelta(hours=1), name])
             return vote.AuthToken(value=b)
         except:
             PopupWin("Fail.")
@@ -193,12 +196,13 @@ class eVoting(vote_grpc.eVotingServicer):
         try:
             elecname = request.name
             token = request.token.value
-            if token in [i[0] for i in Tokens]:
+            if token in Tokens.items():
                 try:
                     groups = request.groups
                     choices = request.choices
                     end_date = request.end_date
-                    print("new election : "+elecname+", end at:"+str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
+                    print("new election : "+elecname+", end at:" +
+                          str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
                     Elections[elecname] = (groups, choices, end_date, token)
                     Ballots[elecname] = {}
                     #PopupWin("Election created successfully!")
@@ -226,10 +230,10 @@ class eVoting(vote_grpc.eVotingServicer):
         try:
             token = request.token.value
             elecname = request.election_name
-            votername = list(Tokens.keys())[[i[0] for i in Tokens].index(token)]
+            votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
             choice_name = request.choice_name
             print(votername+"->"+elecname+"->"+choice_name)
-            if token not in [i[0] for i in Tokens]:
+            if token not in Tokens.values():
                 return vote.Status(code=1)
             if elecname not in Elections.keys():
                 return vote.Status(code=2)
@@ -249,7 +253,7 @@ class eVoting(vote_grpc.eVotingServicer):
                 '''
             if votername in Ballots[elecname].keys():
                 return vote.Status(code=4)
-            if choice_name not in Elections[elecname][1]:   #choice not exist
+            if choice_name not in Elections[elecname][1]:  # choice not exist
                 return vote.Status(code=5)
             Ballots[elecname][votername] = choice_name
             return vote.Status(code=0)
@@ -274,7 +278,7 @@ class eVoting(vote_grpc.eVotingServicer):
                 return vote.ElectionResult(status=1, count=[])
             if Elections[elecname][2].seconds > timestamp.seconds:
                 return vote.ElectionResult(status=2, count=[])
-            
+
             return vote.ElectionResult(status=0, count=Count_Ballot(elecname))
         except Exception as e:
             print("Result query error: " + str(e))

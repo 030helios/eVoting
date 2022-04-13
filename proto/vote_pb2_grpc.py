@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-import vote_pb2 as vote__pb2
+from. import vote_pb2 as vote__pb2
 
 
 class eVotingStub(object):
