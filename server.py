@@ -1,24 +1,28 @@
-from secrets import choice
 import sys
+from secrets import choice
+
 sys.path.append('proto')
-from encodings import utf_8
-from rsa import PublicKey
-import nacl.utils
-from nacl.signing import VerifyKey
-from nacl.public import PrivateKey, Box
-import tkinter as tk
-from tkinter import ttk
-import threading
-import grpc
-from tokenize import group
+import ast
 import logging
+import os
+import threading
+import tkinter as tk
 from concurrent import futures
+from datetime import date, datetime, timedelta, timezone
+from encodings import utf_8
+from heapq import heappop, heappush
+from tkinter import ttk
+from tokenize import group
+
+import grpc
+import nacl.utils
+from google.protobuf.timestamp_pb2 import Timestamp
+from nacl.public import Box, PrivateKey
+from nacl.signing import VerifyKey
+from rsa import PublicKey
+
 import proto.vote_pb2 as vote
 import proto.vote_pb2_grpc as vote_grpc
-import os
-import ast
-from datetime import datetime, timezone, timedelta
-from google.protobuf.timestamp_pb2 import Timestamp
 
 tz = timezone(timedelta(hours=+8))
 Tokens = {}
@@ -26,6 +30,11 @@ Voters = {}
 Elections = {}
 Challenges = {}
 Ballots = {}
+
+def checkToken():
+    for key in list(Tokens.keys()):
+        if Tokens[key][1] < datetime.now():
+            del Tokens[key]
 
 
 def PopupWin(msg):
@@ -169,20 +178,22 @@ class eVoting(vote_grpc.eVotingServicer):
         name = request.name.name
         response = request.response.value
         verify_key = VerifyKey(Voters[name][1])
-        if Challenges[name] == verify_key.verify(response): #try except?
+        try:
+            assert Challenges[name] == verify_key.verify(response)
             #PopupWin("Pass.")
             b = os.urandom(4)
-            Tokens[name] = b
+            Tokens[name] = (b, datetime.now()+timedelta(hours=1))
             return vote.AuthToken(value=b)
-        else:
+        except:
             PopupWin("Fail.")
             return vote.AuthToken(value=b'\x00\x00')
 
     def CreateElection(self, request, context):
+        checkToken()
         try:
             elecname = request.name
             token = request.token.value
-            if token in Tokens.values():
+            if token in [i[0] for i in Tokens]:
                 try:
                     groups = request.groups
                     choices = request.choices
@@ -211,13 +222,14 @@ class eVoting(vote_grpc.eVotingServicer):
         Status.code=3 : The voter's group is not allowed in the election
         Status.code=4 : A previous vote has been cast.
         '''
+        checkToken()
         try:
             token = request.token.value
             elecname = request.election_name
-            votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
+            votername = list(Tokens.keys())[[i[0] for i in Tokens].index(token)]
             choice_name = request.choice_name
             print(votername+"->"+elecname+"->"+choice_name)
-            if token not in Tokens.values():
+            if token not in [i[0] for i in Tokens]:
                 return vote.Status(code=1)
             if elecname not in Elections.keys():
                 return vote.Status(code=2)
