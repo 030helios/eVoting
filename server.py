@@ -36,6 +36,8 @@ def checkToken():
         if Due[0][0] < datetime.now():
             del Tokens[Due[0][1]]
             Due.popleft()
+        else:
+            break
 
 
 def PopupWin(msg):
