@@ -1,6 +1,7 @@
 from __future__ import print_function
 from google.protobuf.timestamp_pb2 import Timestamp
 import sys
+import matplotlib
 sys.path.append('proto')
 from nacl.signing import SigningKey
 import proto.vote_pb2_grpc as vote_grpc
@@ -8,6 +9,8 @@ import proto.vote_pb2 as vote
 import logging
 import grpc
 import tkinter as tk
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from datetime import datetime, timezone, timedelta
 
 tz = timezone(timedelta(hours=+8))
@@ -191,6 +194,29 @@ class VoterClass:
         self.cast_win.mainloop()
 
 
+    def DrawPieChart(self, ballot_count):
+        self.result_win = tk.Toplevel()
+        self.result_win.title("Result")
+        self.result_win.geometry('640x500+200+200')
+        fig = plt.figure(figsize=(6, 6), dpi=100)
+        fig.set_size_inches(6, 4)
+        plt.rcParams.update({'font.size': 14})
+
+        choice_label = [c.choice_name for c in ballot_count]
+        choice_count = [c.count       for c in ballot_count]
+        explode = [0.2 if win == max(choice_count) else 0 for win in choice_count]
+        plt.pie(choice_count, explode=explode, labels=choice_label,  
+            autopct='%1.1f%%', shadow=True, startangle=90)
+        plt.axis('equal') # creates the pie chart like a circle
+        canvasbar = FigureCanvasTkAgg(fig, master=self.result_win)
+        canvasbar.draw()
+        canvasbar.get_tk_widget().place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        
+        plt.close()
+        self.result_win.mainloop()
+        
+
+
     def Button_SendQuery(self, elecname_var):
         global stub
         query_info = vote.ElectionName(name = elecname_var.get())
@@ -199,8 +225,7 @@ class VoterClass:
         ballot_count = result.count
         match (status):
             case (0):
-                print(ballot_count)#show ballot_count
-                self.PopupWin("Success!") 
+                self.DrawPieChart(ballot_count)#show ballot_count
             case (1):
                 self.PopupWin("Non-existent election!")
             case (2):   

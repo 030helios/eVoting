@@ -10,16 +10,17 @@ from datetime import datetime, timedelta, timezone
 from secrets import choice
 from tkinter import ttk
 from tokenize import group
+from turtle import down
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 from nacl.public import Box, PrivateKey
 from nacl.signing import VerifyKey
 
+sys.path.append('proto')
 import proto.vote_pb2 as vote
 import proto.vote_pb2_grpc as vote_grpc
 
-sys.path.append('proto')
 
 
 tz = timezone(timedelta(hours=+8))
@@ -89,34 +90,47 @@ def UpdateListBox(tree):
         count += 1
 
 
+def UpdateElectionFrame():
+    global elecframe
+    for widget in elecframe.winfo_children():
+        if widget.winfo_class() == 'Button':
+            widget.destroy()
+    
+    for elecname, info in Elections.items():
+        groups = " ".join([g for g in info[0]])
+        btn = tk.Button(elecframe, text=elecname+"\n"+groups, font=("Arial", 16),
+                        height = 4, width = 10)
+        btn.pack(side = tk.LEFT, padx=20, pady=20)
+    return
+
 def RegisterThread():
     command = ""
     while command == "":
         reg_win = tk.Tk()
         reg_win.title("Voter Management")
-        reg_win.geometry('640x320')
+        reg_win.geometry('640x520')
 
         # Input Voter name
         name_label = tk.Label(reg_win, text='Voter name :', font=("Arial", 12))
-        name_label.place(relx=0.1, rely=0.18, relwidth=0.15, height=30)
+        name_label.place(relx=0.1, rely=0.1, relwidth=0.15, height=30)
         name_var = tk.StringVar()
-        votername_textbox = tk.Entry(reg_win, textvariable=name_var)
-        votername_textbox.place(relx=0.3, rely=0.18, relwidth=0.25, height=30)
+        votername_textbox = tk.Entry(reg_win, textvariable=name_var, font=('Arial 16'))
+        votername_textbox.place(relx=0.3, rely=0.1, relwidth=0.25, height=30)
 
         # Input Voter group
         group_label = tk.Label(
             reg_win, text='Voter group :', font=("Arial", 12))
-        group_label.place(relx=0.1, rely=0.3, relwidth=0.15, height=30)
+        group_label.place(relx=0.1, rely=0.2, relwidth=0.15, height=30)
         group_var = tk.StringVar()
-        votergroup_textbox = tk.Entry(reg_win, textvariable=group_var)
-        votergroup_textbox.place(relx=0.3, rely=0.3, relwidth=0.25, height=30)
+        votergroup_textbox = tk.Entry(reg_win, textvariable=group_var, font=('Arial 16'))
+        votergroup_textbox.place(relx=0.3, rely=0.2, relwidth=0.25, height=30)
 
         # Input public key
         key_label = tk.Label(reg_win, text='Public key :', font=("Arial", 12))
-        key_label.place(relx=0.1, rely=0.42, relwidth=0.15, height=30)
+        key_label.place(relx=0.1, rely=0.3, relwidth=0.15, height=30)
         key_var = tk.StringVar()
-        key_textbox = tk.Entry(reg_win, textvariable=key_var)
-        key_textbox.place(relx=0.3, rely=0.42, relwidth=0.25, height=30)
+        key_textbox = tk.Entry(reg_win, textvariable=key_var, font=('Arial 16'))
+        key_textbox.place(relx=0.3, rely=0.3, relwidth=0.25, height=30)
 
         # Voter list
         s = ttk.Style()
@@ -135,16 +149,47 @@ def RegisterThread():
             tree.insert('', 'end', text=count, values=(key, value[0]))
             count += 1
 
-        tree.place(relx=0.65, rely=0.1, relwidth=0.3, relheight=0.8)
+        tree.place(relx=0.65, rely=0.05, relwidth=0.3, relheight=0.55)
 
         # Button
         btn1 = tk.Button(reg_win, text="Register", font=("Arial", 16), command=lambda: [
                          RegisterVoter(name_var, group_var, key_var), UpdateListBox(tree)])
-        btn1.place(relx=0.1, rely=0.7, relwidth=0.2, relheight=0.2)
+        btn1.place(relx=0.1, rely=0.48, relwidth=0.2, relheight=0.1)
         btn2 = tk.Button(reg_win, text="Unregister", font=("Arial", 16), command=lambda: [
                          UnregisterVoter(name_var), UpdateListBox(tree)])
-        btn2.place(relx=0.4, rely=0.7, relwidth=0.2, relheight=0.2)
+        btn2.place(relx=0.4, rely=0.48, relwidth=0.2, relheight=0.1)
+        
+        global elecframe
 
+        wrapper = ttk.LabelFrame(reg_win)
+        
+        canvas = tk.Canvas(wrapper,height=140)
+        canvas.pack(side=tk.TOP, fill="x", expand="yes")
+        
+        scrollbar = ttk.Scrollbar(wrapper, orient="horizontal",command=canvas.xview)
+        scrollbar.pack(side=tk.BOTTOM, fill="x")
+
+        canvas.configure(xscrollcommand=scrollbar.set)
+        canvas.bind('<Configure>',lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        elecframe = tk.Frame(canvas)
+        #canvas.pack()
+        canvas.create_window((0,0),window=elecframe, anchor="nw")
+
+        #wrapper.place(relx=0, rely=0.7, relheight=0.25, relwidth=1)
+        wrapper.pack(side=tk.BOTTOM, fill="x", expand="yes", anchor="s")
+
+        '''
+        canvas = tk.Canvas(reg_win)
+        canvas.place(relx=0, rely=0.7, relheight=0.3, relwidth=1)
+        scrollbar = ttk.Scrollbar(reg_win, orient="horizontal",command=canvas.xview)
+        scrollbar.pack(side=tk.BOTTOM, fill="x")
+        elecframe = ttk.Frame(canvas)
+        #canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.bind('<Configure>',lambda e: elecframe.configure(scrollregion=elecframe.bbox("all")))
+        elecframe.place(relx=0, rely=0, relheight=1, width=10000)
+        '''
+        UpdateElectionFrame()
         reg_win.mainloop()
         command = input(
             "<Press Enter to manage the voters> <Input any string to quit the management> ")
@@ -198,23 +243,24 @@ class eVoting(vote_grpc.eVotingServicer):
         try:
             elecname = request.name
             token = request.token.value
-            if token in Tokens.items():
-                try:
-                    groups = request.groups
-                    choices = request.choices
-                    end_date = request.end_date
-                    print("new election : "+elecname+", end at:" +
-                          str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
-                    Elections[elecname] = (groups, choices, end_date, token)
-                    Ballots[elecname] = {}
-                    #PopupWin("Election created successfully!")
-                    return vote.Status(code=0)
-                except:
-                    #PopupWin("Missing groups or choices specification!")
-                    return vote.Status(code=2)
-            else:
+            groups = request.groups
+            choices = request.choices
+            end_date = request.end_date
+            if not groups or not choices:
+                #PopupWin("Missing groups or choices specification!")
+                return vote.Status(code=2)
+            if token not in Tokens.values():
                 #PopupWin("invalid authentication token!")
                 return vote.Status(code=1)
+                
+            print("new election : "+elecname+", end at:" +
+                    str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
+            Elections[elecname] = (groups, choices, end_date, token)
+            Ballots[elecname] = {}
+            #PopupWin("Election created successfully!")
+            UpdateElectionFrame()
+            return vote.Status(code=0)
+                
         except Exception as e:
             #PopupWin("Undefined error.")
             print("Create Election error: " + str(e))

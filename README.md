@@ -1,10 +1,12 @@
 # FTC eVoting System
 ## Setup the environment
+python 3.10.4
 ```
 $ python -m pip install --upgrade pip
 $ python -m pip install grpcio
 $ python -m pip install grpcio-tools
 $ pip install pynacl
+$ pip install matplotlib
 ```
 ## Make
 `$ make`  
