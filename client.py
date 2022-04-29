@@ -278,12 +278,14 @@ class VoterClass:
 if __name__ == '__main__':
     logging.basicConfig()
 
+    ip = input("IP:PORT\n")
+
     voter = VoterClass()
     print("Your public key:")
     print(voter.verify_key)
     print("Please register your info on the server then login.")
 
-    with grpc.insecure_channel('localhost:50051') as channel:
+    with grpc.insecure_channel(ip) as channel:
         stub = vote_grpc.eVotingStub(channel)
         voter.InputName()
         voter.TryAuth()
