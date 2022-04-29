@@ -12,6 +12,7 @@ import tkinter as tk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from datetime import datetime, timezone, timedelta
+from nacl.encoding import Base64Encoder
 
 tz = timezone(timedelta(hours=+8))
 stub = 0
@@ -282,7 +283,7 @@ if __name__ == '__main__':
 
     voter = VoterClass()
     print("Your public key:")
-    print(voter.verify_key)
+    print(voter.verify_key.encode(encoder=Base64Encoder))
     print("Please register your info on the server then login.")
 
     with grpc.insecure_channel(ip) as channel:

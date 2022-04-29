@@ -16,6 +16,7 @@ import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 from nacl.public import Box, PrivateKey
 from nacl.signing import VerifyKey
+from nacl.encoding import Base64Encoder
 
 sys.path.append('proto')
 import proto.vote_pb2 as vote
@@ -52,7 +53,7 @@ def PopupWin(msg):
 def RegisterVoter(name_var, group_var, key_var):
     name = name_var.get()
     group = group_var.get()
-    key = ast.literal_eval(key_var.get())
+    key = Base64Encoder.decode(ast.literal_eval(key_var.get()))
     try:
         if name not in Voters.keys():
             Voters[name] = (group, key)
