@@ -79,17 +79,16 @@ class VoterClass:
             token = vote.AuthToken(value=self.auth_token)
         )
         status = stub.CreateElection(election_info).code
-        match (status):
-            case (0):
-                self.PopupWin("Election created successfully!")
-                self.create_win.destroy()
-            case (1):
-                self.PopupWin("Invalid authentication token!")
-                self.create_win.destroy()
-            case (2):   
-                self.PopupWin("Missing groups or choices specification!")
-            case _:
-                self.PopupWin("Undefined error.")
+        if status==0:
+            self.PopupWin("Election created successfully!")
+            self.create_win.destroy()
+        elif status==1:
+            self.PopupWin("Invalid authentication token!")
+            self.create_win.destroy()
+        elif status==2:
+            self.PopupWin("Missing groups or choices specification!")
+        else:
+            self.PopupWin("Undefined error.")
 
 
     def Button_CreateElection(self):
@@ -146,21 +145,20 @@ class VoterClass:
             token = vote.AuthToken(value=self.auth_token)
         )
         status = stub.CastVote(cast_info).code
-        match (status):
-            case (0):
-                self.PopupWin("Successful vote!")
-                self.cast_win.destroy()
-            case (1):
-                self.PopupWin("Invalid authentication token!")
-                self.cast_win.destroy()
-            case (2):   
-                self.PopupWin("Invalid election name!")
-            case (3):   
-                self.PopupWin("You are not allowed in the election!")
-            case (4):   
-                self.PopupWin("A previous vote has been cast!")
-            case _:
-                self.PopupWin("Undefined error.")
+        if status==0:
+            self.PopupWin("Successful vote!")
+            self.cast_win.destroy()
+        elif status==1:
+            self.PopupWin("Invalid authentication token!")
+            self.cast_win.destroy()
+        elif status==2:
+            self.PopupWin("Invalid election name!")
+        elif status==3:
+            self.PopupWin("You are not allowed in the election!")
+        elif status==4:
+            self.PopupWin("A previous vote has been cast!")
+        else:
+            self.PopupWin("Undefined error.")
 
 
     def Button_CastVote(self):
@@ -223,15 +221,14 @@ class VoterClass:
         result = stub.GetResult(query_info)
         status = result.status
         ballot_count = result.count
-        match (status):
-            case (0):
-                self.DrawPieChart(ballot_count)#show ballot_count
-            case (1):
-                self.PopupWin("Non-existent election!")
-            case (2):   
-                self.PopupWin("The election is still ongoing.\nElection result is not available yet.")
-            case _:
-                self.PopupWin("Undefined error.")
+        if status==0:
+            self.DrawPieChart(ballot_count)#show ballot_count
+        elif status==1:
+            self.PopupWin("Non-existent election!")
+        elif status==2:
+            self.PopupWin("The election is still ongoing.\nElection result is not available yet.")
+        else:
+            self.PopupWin("Undefined error.")
 
 
     def Button_VeiwResult(self):

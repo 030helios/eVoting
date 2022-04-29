@@ -1,6 +1,6 @@
 # FTC eVoting System
 ## Setup the environment
-python 3.10.4
+python 3.8
 ```
 $ python -m pip install --upgrade pip
 $ python -m pip install grpcio
