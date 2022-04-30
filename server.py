@@ -53,7 +53,8 @@ def PopupWin(msg):
 def RegisterVoter(name_var, group_var, key_var):
     name = name_var.get()
     group = group_var.get()
-    key = Base64Encoder.decode(ast.literal_eval(key_var.get()))
+    #key = Base64Encoder.decode(ast.literal_eval(key_var.get()))
+    key = Base64Encoder.decode(key_var.get())
     try:
         if name not in Voters.keys():
             Voters[name] = (group, key)

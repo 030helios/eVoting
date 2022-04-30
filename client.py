@@ -20,7 +20,24 @@ stub = 0
 class VoterClass:
     def __init__(self):
         self.voter_name = ""
-        self.signing_key = SigningKey.generate()        # Generate a new random signing key
+        #self.signing_key = SigningKey.generate()        # Generate a new random signing key
+        self.signing_key = SigningKey(b'NNhdK95f3J3TVVzIC7BlLOdyMSvJWjKcXte2q4oVSVw=', encoder=Base64Encoder)
+        '''
+        private1:
+            b'NNhdK95f3J3TVVzIC7BlLOdyMSvJWjKcXte2q4oVSVw='
+        public1:
+            b'5bkBKzX1bA7oEqZnUYhI5LliLrNxoereKxbNbwjfPEw='
+
+        private2:
+            b'0vWuClFMbtpV79oYxOJvz7okDrG4SlxsFhaxE7lpojo='
+        public2:
+            b'mbUv9IIv8tmI4Uc8oSbFUyCo78SCu8KOGAEmIhxe6rQ='
+
+        private3:
+            b'xJXRsCGd9hiV5zmJ5fiMbmbOXIqdezxjX574gW55AlQ='
+        public3:
+            b'BU036lSDeZvv6JdKq5WGd5ngDXFEBAFtZn1EVrJTXqM='
+        '''
         self.verify_key = self.signing_key.verify_key   # Obtain the verify key for a given signing key
         self.auth_token = b'\x00\x00'
 
@@ -215,7 +232,6 @@ class VoterClass:
         self.result_win.mainloop()
         
 
-
     def Button_SendQuery(self, elecname_var):
         global stub
         query_info = vote.ElectionName(name = elecname_var.get())
@@ -283,7 +299,7 @@ if __name__ == '__main__':
 
     voter = VoterClass()
     print("Your public key:")
-    print(voter.verify_key.encode(encoder=Base64Encoder))
+    print((voter.verify_key.encode(encoder=Base64Encoder)).decode("utf-8"))
     print("Please register your info on the server then login.")
 
     with grpc.insecure_channel(ip) as channel:
