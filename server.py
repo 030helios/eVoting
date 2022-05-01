@@ -10,8 +10,9 @@ from datetime import datetime, timedelta, timezone
 from secrets import choice
 from tkinter import ttk
 from tokenize import group
-from turtle import down
 
+import socket
+import time
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 from nacl.public import Box, PrivateKey
@@ -32,6 +33,37 @@ Elections = {}
 Challenges = {}
 Ballots = {}
 
+def ManagerThread():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((socket.gethostbyname(socket.gethostname()), 50052))
+    s.listen(5)
+
+    while True:
+        conn, addr = s.accept()
+        try:
+            while True:
+                s.setblocking(False)
+                command = conn.recv(1024)
+                if len(command) > 0:
+                    command = command.decode()
+                    if command == "run":
+                        print("Now serving..")
+                        register_thread = threading.Thread(target=RegisterThread)
+                        register_thread.start()
+                        
+                    elif command == "shutdown":
+                        print("shutdown...")
+                        s.shutdown(socket.SHUT_RDWR)
+                        s.close()
+                    
+                    elif command == "update":
+                        pass    # recieve voting data from manager
+                    
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("keyboard interrupt...")
+            return
 
 def checkToken():
     while Due:
@@ -104,6 +136,7 @@ def UpdateElectionFrame():
                         height = 4, width = 10)
         btn.pack(side = tk.LEFT, padx=20, pady=20)
     return
+
 
 def RegisterThread():
     command = ""
@@ -336,7 +369,6 @@ class eVoting(vote_grpc.eVotingServicer):
 
 
 def serve():
-    print("Now serving..")
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     vote_grpc.add_eVotingServicer_to_server(eVoting(), server)
     server.add_insecure_port('[::]:50051')
@@ -347,9 +379,10 @@ def serve():
 if __name__ == '__main__':
     logging.basicConfig()
     try:
-        register_thread = threading.Thread(target=RegisterThread)
-        register_thread.start()
+        manager_thread = threading.Thread(target=ManagerThread)
+        manager_thread.start()
+        
         serve()
     except KeyboardInterrupt:
-        register_thread.join()
+        manager_thread.join()
         print("\nTerminated")

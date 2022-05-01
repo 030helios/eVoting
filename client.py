@@ -16,6 +16,9 @@ from nacl.encoding import Base64Encoder
 
 tz = timezone(timedelta(hours=+8))
 stub = 0
+working_server = 0 #primary
+primaryIP = ""
+backupIP  = ""
 
 class VoterClass:
     def __init__(self):
@@ -85,6 +88,9 @@ class VoterClass:
     
     def Button_SendCreation(self, elecname_var, elecgroup_var, choices_var, etime_var):
         global stub
+        global primaryIP
+        global backupIP
+        global working_server
         timestamp = Timestamp()
         dt = datetime.fromisoformat(etime_var.get()).astimezone(tz)
         timestamp.FromDatetime(dt)
@@ -96,7 +102,15 @@ class VoterClass:
             end_date = timestamp,
             token = vote.AuthToken(value=self.auth_token)
         )
-        status = stub.CreateElection(election_info).code
+        
+        try:
+            status = stub.CreateElection(election_info).code  
+        except  grpc._channel._InactiveRpcError:   #working_server crash
+            working_server = 0 if working_server==1 else 1
+            with grpc.insecure_channel(primaryIP if working_server==0 else backupIP) as channel:
+                stub = vote_grpc.eVotingStub(channel)
+                status = stub.CreateElection(election_info).code
+        
         if status==0:
             self.PopupWin("Election created successfully!")
             self.create_win.destroy()
@@ -295,14 +309,17 @@ class VoterClass:
 if __name__ == '__main__':
     logging.basicConfig()
 
-    ip = input("IP:PORT\n")
+    primaryIP = "192.168.181.137:50051"
+    backupIP  = "192.168.220.128:50051"
+    #primaryIP = input("IP:PORT for primary server : ")
+    #backupIP =  input("IP:PORT for backup  server : ")
 
     voter = VoterClass()
     print("Your public key:")
     print((voter.verify_key.encode(encoder=Base64Encoder)).decode("utf-8"))
     print("Please register your info on the server then login.")
 
-    with grpc.insecure_channel(ip) as channel:
+    with grpc.insecure_channel(primaryIP if working_server==0 else backupIP) as channel:
         stub = vote_grpc.eVotingStub(channel)
         voter.InputName()
         voter.TryAuth()
