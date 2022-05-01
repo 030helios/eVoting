@@ -13,6 +13,8 @@ from tokenize import group
 
 import socket
 import time
+
+
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 from nacl.public import Box, PrivateKey
@@ -33,33 +35,36 @@ Elections = {}
 Challenges = {}
 Ballots = {}
 
+managerSOCK = None
+managerCONN = None
+
 def ManagerThread():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((socket.gethostbyname(socket.gethostname()), 50052))
-    s.listen(5)
+    global managerSOCK
+    global managerCONN
+    global Voters
+    managerSOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    managerSOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    managerSOCK.bind(('', 50052))
+    managerSOCK.listen(5)
 
     while True:
-        conn, addr = s.accept()
+        managerCONN, addr = managerSOCK.accept()
+        print('connected by ' + str(addr))
         try:
             while True:
-                s.setblocking(False)
-                command = conn.recv(1024)
-                if len(command) > 0:
-                    command = command.decode()
-                    if command == "run":
-                        print("Now serving..")
-                        register_thread = threading.Thread(target=RegisterThread)
-                        register_thread.start()
-                        
-                    elif command == "shutdown":
-                        print("shutdown...")
-                        s.shutdown(socket.SHUT_RDWR)
-                        s.close()
-                    
-                    elif command == "update":
-                        pass    # recieve voting data from manager
-                    
+                try:
+                    command = managerCONN.recv(1024)
+                    if len(command) > 0:
+                        command = command.decode()
+                        varname = command.split()[0]
+                        if varname == "Voters":
+                            # store voters from manager
+                            voter_str = ''.join(command.split()[1:])
+                            Voters = ast.literal_eval(voter_str)#json.loads(voter_str)
+                            print("store Voters : "+str(Voters))
+                except BlockingIOError:
+                    time.sleep(3)
+
                 time.sleep(1)
         except KeyboardInterrupt:
             print("keyboard interrupt...")
@@ -83,6 +88,8 @@ def PopupWin(msg):
 
 
 def RegisterVoter(name_var, group_var, key_var):
+    global managerSOCK
+    global managerCONN
     name = name_var.get()
     group = group_var.get()
     #key = Base64Encoder.decode(ast.literal_eval(key_var.get()))
@@ -90,12 +97,17 @@ def RegisterVoter(name_var, group_var, key_var):
     try:
         if name not in Voters.keys():
             Voters[name] = (group, key)
+            msg = "Voters " + str(Voters)#json.dumps(Voters)
+            print("primary->manager : " + msg)
+            managerCONN.send(msg.encode())
+            print("send new voter done")
             PopupWin("Register success!")
             return 0
         else:
             PopupWin("Voter Name already exists!")
             return 1
-    except:
+    except Exception as e:
+        print("Register voter error: " + str(e))
         PopupWin("Undefined error.")
         return 2
 
@@ -379,10 +391,12 @@ def serve():
 if __name__ == '__main__':
     logging.basicConfig()
     try:
-        manager_thread = threading.Thread(target=ManagerThread)
+        manager_thread = threading.Thread(target=ManagerThread, daemon=True)
         manager_thread.start()
-        
+        register_thread = threading.Thread(target=RegisterThread)
+        register_thread.start()
+        print("Now serving..")
         serve()
     except KeyboardInterrupt:
-        manager_thread.join()
+        
         print("\nTerminated")

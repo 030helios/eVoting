@@ -76,7 +76,16 @@ class VoterClass:
 
     def TryAuth(self):
         global stub
-        chall = stub.PreAuth(vote.VoterName(name=self.voter_name))
+        global primaryIP
+        global backupIP
+        global working_server
+        try:
+            chall = stub.PreAuth(vote.VoterName(name=self.voter_name))
+        except  grpc._channel._InactiveRpcError:   #working_server crash
+            working_server = 0 if working_server==1 else 1
+            channel = grpc.insecure_channel(primaryIP if working_server==0 else backupIP) 
+            stub = vote_grpc.eVotingStub(channel)
+            chall = stub.PreAuth(vote.VoterName(name=self.voter_name))
         signed = self.signing_key.sign(chall.value)
         resp = vote.Response(value=signed)
         response = stub.Auth(vote.AuthRequest(

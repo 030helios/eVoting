@@ -8,6 +8,7 @@ $ python -m pip install grpcio-tools
 $ sudo apt-get install python3-tk
 $ pip install pynacl
 $ pip install matplotlib
+$ pip3 install varname
 ```
 ## Make
 `$ make`  
