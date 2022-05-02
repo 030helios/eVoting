@@ -1,3 +1,4 @@
+from glob import glob
 import time
 import socket
 import threading
@@ -7,10 +8,14 @@ backupIP = ""
 sock = {}
 sock["backup"] = None
 sock["primary"] = None
+mutex = threading.Lock()
+primaryRestore = None
 
 def PrimaryThread():
     global working_server
     global sock
+    global mutex
+    global primaryRestore
     while True:
         try:
             sock["primary"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -24,6 +29,9 @@ def PrimaryThread():
             if working_server == 1:
                 sock["backup"].send("RESTORE".encode())
                 working_server == 0
+                mutex.acquire()
+                sock["primary"].send(primaryRestore.encode())  # forword data to primary                    
+                print("restore manager->primary done")
         
             while working_server == 0:  # primary power-on
                 primaryCOMM = sock["primary"].recv(1024)
@@ -58,6 +66,8 @@ def PrimaryThread():
 def BackupThread():
     global backupIP
     global sock
+    global mutex
+    global primaryRestore
     sock["backup"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock["backup"].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     backupPORT = 50052
@@ -72,10 +82,9 @@ def BackupThread():
                 op = backupCOMM.split()[0]
                 
                 if op == "RESTORE":
-                    msg = backupCOMM
+                    primaryRestore = backupCOMM
                     print("send restore..")
-                    sock["primary"].send(msg.encode())  # forword data to primary                    
-                    print("restore manager->primary done")
+                    mutex.release()
                 
     except KeyboardInterrupt:
         print("keyboard interrupt...")
@@ -91,6 +100,7 @@ if __name__ == '__main__':
         backupIP = "192.168.220.128"
         #backupIP = "192.168.181.137"
         #backupIP = input("IP:PORT for backup server: ")
+        mutex.acquire()
         primary_thread = threading.Thread(target=PrimaryThread, daemon=True)
         primary_thread.start()
 
