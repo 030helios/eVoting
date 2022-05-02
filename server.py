@@ -48,20 +48,23 @@ def Sync(option):
     option=1: backup > primary
     '''
     global managerCONN
-    if is_primary ^ option:
-        option = "SYNC " if option == 0 else "RESTORE "
-        print("Syncronizing..")
-        msg =   option + \
-                str(Voters) + "\x00" + \
-                str(Tokens) + "\x00" + \
-                str(Challenges) + "\x00" + \
-                str(Due) + "\x00" + \
-                str(Elections) + "\x00" + \
-                str(Ballots)
-        managerCONN.send(msg.encode())
-        print("send " + option + "done")
-        UpdateElectionFrame()
-    return
+    try:
+        if is_primary ^ option:
+            option = "SYNC " if option == 0 else "RESTORE "
+            print("Syncronizing..")
+            msg =   option + \
+                    str(Voters) + "\x00" + \
+                    str(Tokens) + "\x00" + \
+                    str(Challenges) + "\x00" + \
+                    str(Due) + "\x00" + \
+                    str(Elections) + "\x00" + \
+                    str(Ballots)
+            managerCONN.send(msg.encode())
+            print("send " + option + "done")
+            UpdateElectionFrame()
+        return
+    except Exception as e:
+        print("Sync error: "+str(e))
         
 def ManagerThread():    # loop forever recv()
     global managerSOCK
@@ -75,13 +78,13 @@ def ManagerThread():    # loop forever recv()
 
     managerCONN, addr = managerSOCK.accept()
     print('connected by ' + str(addr))
-    try:
-        while True:
+    while True:
+        try:
             command = managerCONN.recv(1024)
             if len(command) > 0:
                 command = command.decode()
                 op = command.split()[0]
-                print("opp = "+op)
+                print("op = "+op)
                 if op == "PRIMARY":
                     is_primary = 1
                     print("PRIMARY HERE")
@@ -100,10 +103,16 @@ def ManagerThread():    # loop forever recv()
                     print("--------")
                 elif op == "RESTORE" and is_primary == 0:
                     Sync(1)
+            else:
+                print("op len error")
+                time.sleep(6)
+                raise ConnectionResetError
 
-    except KeyboardInterrupt:
-        print("keyboard interrupt...")
-        return
+        except KeyboardInterrupt:
+            print("keyboard interrupt...")
+            return
+        except Exception as e:
+            print("Manager Thread error: "+str(e))
 
 def checkToken(token):
     votername = list(Tokens.keys())[list(Tokens.values()).index(token)]

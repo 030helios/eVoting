@@ -22,13 +22,15 @@ def PrimaryThread():
             sock["primary"].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             primaryIP = socket.gethostbyname(socket.gethostname())
             primaryPORT = 50052
+            print("connecting primary..")
             sock["primary"].connect((primaryIP, primaryPORT))
+            print("connect primary done.")
             time.sleep(0.1)
             sock["primary"].send("PRIMARY".encode())
             time.sleep(0.1)
             if working_server == 1:
                 sock["backup"].send("RESTORE".encode())
-                working_server == 0
+                working_server = 0
                 mutex.acquire()
                 sock["primary"].send(primaryRestore.encode())  # forword data to primary                    
                 print("restore manager->primary done")
