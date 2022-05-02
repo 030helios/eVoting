@@ -28,55 +28,90 @@ import proto.vote_pb2_grpc as vote_grpc
 
 
 tz = timezone(timedelta(hours=+8))
-Tokens = {}
-Due = deque()
 Voters = {}
-Elections = {}
+Tokens = {}
 Challenges = {}
+Due = {}
+Elections = {}
 Ballots = {}
+
+Voters, Tokens, Challenges, Due, Elections, Ballots
+
+is_primary = 0
 
 managerSOCK = None
 managerCONN = None
 
-def ManagerThread():
+def Sync(option): 
+    '''
+    option=0: primary > backup 
+    option=1: backup > primary
+    '''
+    global managerCONN
+    if is_primary ^ option:
+        option = "SYNC " if option == 0 else "RESTORE "
+        print("Syncronizing..")
+        msg =   option + \
+                str(Voters) + "\x00" + \
+                str(Tokens) + "\x00" + \
+                str(Challenges) + "\x00" + \
+                str(Due) + "\x00" + \
+                str(Elections) + "\x00" + \
+                str(Ballots)
+        managerCONN.send(msg.encode())
+        print("send " + option + "done")
+        UpdateElectionFrame()
+    return
+        
+def ManagerThread():    # loop forever recv()
     global managerSOCK
     global managerCONN
-    global Voters
+    global Voters, Tokens, Challenges, Due, Elections, Ballots
+    global is_primary
     managerSOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     managerSOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     managerSOCK.bind(('', 50052))
     managerSOCK.listen(5)
 
-    while True:
-        managerCONN, addr = managerSOCK.accept()
-        print('connected by ' + str(addr))
-        try:
-            while True:
-                try:
-                    command = managerCONN.recv(1024)
-                    if len(command) > 0:
-                        command = command.decode()
-                        varname = command.split()[0]
-                        if varname == "Voters":
-                            # store voters from manager
-                            voter_str = ''.join(command.split()[1:])
-                            Voters = ast.literal_eval(voter_str)#json.loads(voter_str)
-                            print("store Voters : "+str(Voters))
-                except BlockingIOError:
-                    time.sleep(3)
+    managerCONN, addr = managerSOCK.accept()
+    print('connected by ' + str(addr))
+    try:
+        while True:
+            command = managerCONN.recv(1024)
+            if len(command) > 0:
+                command = command.decode()
+                op = command.split()[0]
+                print("opp = "+op)
+                if op == "PRIMARY":
+                    is_primary = 1
+                    print("PRIMARY HERE")
 
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("keyboard interrupt...")
-            return
+                elif op == "SYNC" or (op == "RESTORE" and is_primary):
+                    # store data from manager
+                    data = ''.join(command.split()[1:])
+                    
+                    Voters, Tokens, Challenges, Due, Elections, Ballots = [ast.literal_eval(line) for line in data.split('\x00')]
+                    print("store Voters : "+str(Voters))
+                    print("store Tokens : "+str(Tokens))
+                    print("store Challenges : "+str(Challenges))
+                    print("store Due : "+str(Due))
+                    print("store Elections : "+str(Elections))
+                    print("store Ballots : "+str(Ballots))
+                    print("--------")
+                elif op == "RESTORE" and is_primary == 0:
+                    Sync(1)
 
-def checkToken():
-    while Due:
-        if Due[0][0] < datetime.now():
-            del Tokens[Due[0][1]]
-            Due.popleft()
-        else:
-            break
+    except KeyboardInterrupt:
+        print("keyboard interrupt...")
+        return
+
+def checkToken(token):
+    votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
+    if Due[votername] < int(datetime.now().timestamp()):
+        del Tokens[votername]
+        del Due[votername]
+        Sync(0)
+    return
 
 
 def PopupWin(msg):
@@ -92,15 +127,11 @@ def RegisterVoter(name_var, group_var, key_var):
     global managerCONN
     name = name_var.get()
     group = group_var.get()
-    #key = Base64Encoder.decode(ast.literal_eval(key_var.get()))
     key = Base64Encoder.decode(key_var.get())
     try:
         if name not in Voters.keys():
             Voters[name] = (group, key)
-            msg = "Voters " + str(Voters)#json.dumps(Voters)
-            print("primary->manager : " + msg)
-            managerCONN.send(msg.encode())
-            print("send new voter done")
+            Sync(0)
             PopupWin("Register success!")
             return 0
         else:
@@ -117,6 +148,7 @@ def UnregisterVoter(name_var):
     try:
         if name in Voters.keys():
             del Voters[name]
+            Sync(0)
             PopupWin("Unregister Success!")
             return 0
         else:
@@ -268,6 +300,7 @@ class eVoting(vote_grpc.eVotingServicer):
         name = request.name
         chal = os.urandom(4)
         Challenges[name] = chal
+        Sync(0)
         return vote.Challenge(value=chal)
 
     def Auth(self, request, context):
@@ -277,22 +310,26 @@ class eVoting(vote_grpc.eVotingServicer):
         try:
             assert Challenges[name] == verify_key.verify(response)
             # PopupWin("Pass.")
-            b = os.urandom(4)
-            Tokens[name] = b
-            Due.append([datetime.now()+timedelta(hours=1), name])
+            while True:
+                b = os.urandom(4)
+                if b not in Tokens.values():
+                    Tokens[name] = b
+                    break
+            Due[name] = int((datetime.now()+timedelta(hours=1)).timestamp())
+            Sync(0)
             return vote.AuthToken(value=b)
         except:
             PopupWin("Fail.")
             return vote.AuthToken(value=b'\x00\x00')
 
     def CreateElection(self, request, context):
-        checkToken()
         try:
             elecname = request.name
             token = request.token.value
             groups = request.groups
             choices = request.choices
             end_date = request.end_date
+            checkToken(token)
             if not groups or not choices:
                 #PopupWin("Missing groups or choices specification!")
                 return vote.Status(code=2)
@@ -302,8 +339,9 @@ class eVoting(vote_grpc.eVotingServicer):
                 
             print("new election : "+elecname+", end at:" +
                     str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
-            Elections[elecname] = (groups, choices, end_date, token)
+            Elections[elecname] = (groups, choices, end_date.seconds, token)
             Ballots[elecname] = {}
+            Sync(0)
             #PopupWin("Election created successfully!")
             UpdateElectionFrame()
             return vote.Status(code=0)
@@ -321,12 +359,13 @@ class eVoting(vote_grpc.eVotingServicer):
         Status.code=3 : The voter's group is not allowed in the election
         Status.code=4 : A previous vote has been cast.
         '''
-        checkToken()
+        
         try:
             token = request.token.value
             elecname = request.election_name
             votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
             choice_name = request.choice_name
+            checkToken(token)
             print(votername+"->"+elecname+"->"+choice_name)
             if token not in Tokens.values():
                 return vote.Status(code=1)
@@ -351,6 +390,7 @@ class eVoting(vote_grpc.eVotingServicer):
             if choice_name not in Elections[elecname][1]:  # choice not exist
                 return vote.Status(code=5)
             Ballots[elecname][votername] = choice_name
+            Sync(0)
             return vote.Status(code=0)
 
         except Exception as e:
@@ -371,7 +411,7 @@ class eVoting(vote_grpc.eVotingServicer):
 
             if elecname not in Elections.keys():
                 return vote.ElectionResult(status=1, count=[])
-            if Elections[elecname][2].seconds > timestamp.seconds:
+            if Elections[elecname][2] > timestamp.seconds:
                 return vote.ElectionResult(status=2, count=[])
 
             return vote.ElectionResult(status=0, count=Count_Ballot(elecname))
