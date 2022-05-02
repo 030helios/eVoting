@@ -4,29 +4,29 @@ import threading
 
 working_server = 0 # primary
 backupIP = ""
-backupSOCK = None
-primarySOCK = None
+sock = {}
+sock["backup"] = None
+sock["primary"] = None
 
 def PrimaryThread():
     global working_server
-    global backupSOCK
-    global primarySOCK
+    global sock
     while True:
         try:
-            primarySOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            primarySOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock["primary"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock["primary"].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             primaryIP = socket.gethostbyname(socket.gethostname())
             primaryPORT = 50052
-            primarySOCK.connect((primaryIP, primaryPORT))
+            sock["primary"].connect((primaryIP, primaryPORT))
             time.sleep(0.1)
-            primarySOCK.send("PRIMARY".encode())
+            sock["primary"].send("PRIMARY".encode())
             time.sleep(0.1)
             if working_server == 1:
-                backupSOCK.send("RESTORE".encode())
+                sock["backup"].send("RESTORE".encode())
                 working_server == 0
         
             while working_server == 0:  # primary power-on
-                primaryCOMM = primarySOCK.recv(1024)
+                primaryCOMM = sock["primary"].recv(1024)
                 if len(primaryCOMM) > 0:
                     primaryCOMM = primaryCOMM.decode()
                     print("receive from primary : "+str(primaryCOMM))
@@ -34,20 +34,20 @@ def PrimaryThread():
 
                     if op == "SYNC":             # handle sync from primary's new data
                         msg = primaryCOMM
-                        backupSOCK.send(msg.encode())  # forword data to backup
+                        sock["backup"].send(msg.encode())  # forword data to backup
                         print("sync manager->backup done")
 
         except ConnectionResetError:
             print("primary crash detected")
             working_server = 1
-            #backupSOCK.send("primary".encode())
-            primarySOCK.shutdown(socket.SHUT_RDWR)
-            primarySOCK.close()
+            #sock["backup"].send("primary".encode())
+            sock["primary"].shutdown(socket.SHUT_RDWR)
+            sock["primary"].close()
                 
         except KeyboardInterrupt:
             print("keyboard interrupt...")
-            primarySOCK.shutdown(socket.SHUT_RDWR)
-            primarySOCK.close()
+            sock["primary"].shutdown(socket.SHUT_RDWR)
+            sock["primary"].close()
             return
         
         except ConnectionRefusedError: 
@@ -57,16 +57,15 @@ def PrimaryThread():
 
 def BackupThread():
     global backupIP
-    global backupSOCK
-    global primarySOCK
-    backupSOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    backupSOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    global sock
+    sock["backup"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock["backup"].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     backupPORT = 50052
-    backupSOCK.connect((backupIP,backupPORT))
+    sock["backup"].connect((backupIP,backupPORT))
 
     try:
         while True:
-            backupCOMM = backupSOCK.recv(1024)
+            backupCOMM = sock["backup"].recv(1024)
             if len(backupCOMM) > 0:
                 backupCOMM = backupCOMM.decode()
                 print("receive from backup : "+str(backupCOMM))
@@ -75,13 +74,13 @@ def BackupThread():
                 if op == "RESTORE":
                     msg = backupCOMM
                     print("send restore..")
-                    primarySOCK.send(msg.encode())  # forword data to primary                    
+                    sock["primary"].send(msg.encode())  # forword data to primary                    
                     print("restore manager->primary done")
                 
     except KeyboardInterrupt:
         print("keyboard interrupt...")
-        backupSOCK.shutdown(socket.SHUT_RDWR)
-        backupSOCK.close()
+        sock["backup"].shutdown(socket.SHUT_RDWR)
+        sock["backup"].close()
         
         return
     except Exception as e:
