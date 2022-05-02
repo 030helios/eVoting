@@ -44,6 +44,8 @@ def PrimaryThread():
                         msg = primaryCOMM
                         sock["backup"].send(msg.encode())  # forword data to backup
                         print("sync manager->backup done")
+                else:
+                    raise ConnectionResetError
 
         except ConnectionResetError:
             print("primary crash detected")
