@@ -16,11 +16,13 @@ Regenerates the followings:
 `vote_pb2.py` which contains our generated request and response classes   
 `vote_pb2_grpc.py` which contains our generated client and server classes.
 ## Run
-### Run server first
+### Run two server(primary & backup) first
 `$ python3 server.py`  
-or  
-`$ make server`
+### Run manager in primary's VM
+`$ python3 manager.py`  
 ### Run clients
 `$ python3 client.py`  
-or  
-`$ make client`
+
+## Quit the server
+i)  Close all the windows then input any string in the terminal  
+ii) Press Ctrl-C
