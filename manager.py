@@ -22,9 +22,8 @@ def PrimaryThread():
             sock["primary"].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             primaryIP = socket.gethostbyname(socket.gethostname())
             primaryPORT = 50052
-            print("connecting primary..")
             sock["primary"].connect((primaryIP, primaryPORT))
-            print("connect primary done.")
+            print("[Manager +] Connect primary done.")
             time.sleep(0.1)
             sock["primary"].send("PRIMARY".encode())
             time.sleep(0.1)
@@ -33,38 +32,38 @@ def PrimaryThread():
                 working_server = 0
                 mutex.acquire()
                 sock["primary"].send(primaryRestore.encode())  # forword data to primary                    
-                print("restore manager->primary done")
+                print("[Manager +] Restore to primary.")
         
             while working_server == 0:  # primary power-on
                 primaryCOMM = sock["primary"].recv(1024)
                 if len(primaryCOMM) > 0:
                     primaryCOMM = primaryCOMM.decode()
-                    print("receive from primary : "+str(primaryCOMM))
                     op = primaryCOMM.split()[0]
-
                     if op == "SYNC":             # handle sync from primary's new data
                         msg = primaryCOMM
                         sock["backup"].send(msg.encode())  # forword data to backup
-                        print("sync manager->backup done")
+                        print("[Manager +] Sync to backup.")
                 else:
                     raise ConnectionResetError
 
         except ConnectionResetError:
-            print("primary crash detected")
+            print("[Manager -] Primary crash detected.")
             working_server = 1
-            #sock["backup"].send("primary".encode())
             sock["primary"].shutdown(socket.SHUT_RDWR)
             sock["primary"].close()
                 
         except KeyboardInterrupt:
-            print("keyboard interrupt...")
+            print("[Manager -] Keyboard interrupted.")
             sock["primary"].shutdown(socket.SHUT_RDWR)
             sock["primary"].close()
             return
         
         except ConnectionRefusedError: 
             # primary still crash, reconnect
-            time.sleep(2)
+            time.sleep(0.3)
+        
+        except Exception as e:
+            print("[Manager -] PrimaryThread error: "+str(e))
             
 
 def BackupThread():
@@ -82,28 +81,25 @@ def BackupThread():
             backupCOMM = sock["backup"].recv(1024)
             if len(backupCOMM) > 0:
                 backupCOMM = backupCOMM.decode()
-                print("receive from backup : "+str(backupCOMM))
                 op = backupCOMM.split()[0]
                 
                 if op == "RESTORE":
                     primaryRestore = backupCOMM
-                    print("send restore..")
+                    print("[Manager +] Send restore signal.")
                     mutex.release()
                 
     except KeyboardInterrupt:
-        print("keyboard interrupt...")
+        print("[Manager -] Keyboard interrupted.")
         sock["backup"].shutdown(socket.SHUT_RDWR)
         sock["backup"].close()
         
         return
     except Exception as e:
-        print("backup thread error: "+str(e))
+        print("[Manager -] BackupThread error: "+str(e))
 
 if __name__ == '__main__':
     try:
-        backupIP = "192.168.220.128"
-        #backupIP = "192.168.181.137"
-        #backupIP = input("IP:PORT for backup server: ")
+        backupIP = input("IP for backup server: ")
         mutex.acquire()
         primary_thread = threading.Thread(target=PrimaryThread, daemon=True)
         primary_thread.start()
@@ -114,4 +110,4 @@ if __name__ == '__main__':
         while True: 
             time.sleep(100)
     except KeyboardInterrupt:
-        print("\nManager terminated")
+        print("\n[Manager] Terminated")

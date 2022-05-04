@@ -51,7 +51,7 @@ def Sync(option):
     try:
         if is_primary ^ option:
             option = "SYNC " if option == 0 else "RESTORE "
-            print("Syncronizing..")
+            #print("[Server +] Syncronizing..")
             msg =   option + \
                     str(Voters) + "\x00" + \
                     str(Tokens) + "\x00" + \
@@ -60,11 +60,10 @@ def Sync(option):
                     str(Elections) + "\x00" + \
                     str(Ballots)
             managerCONN.send(msg.encode())
-            print("send " + option + "done")
-            UpdateElectionFrame()
+            print("[Server +] Send " + option + "done.")
         return
     except Exception as e:
-        print("Sync error: "+str(e))
+        print("[Server -] Sync/Restore error: "+str(e))
         
 def ManagerThread():    # loop forever recv()
     global managerSOCK
@@ -77,23 +76,25 @@ def ManagerThread():    # loop forever recv()
     managerSOCK.listen(5)
 
     managerCONN, addr = managerSOCK.accept()
-    print('connected by ' + str(addr))
+    print('[Server +] Connected by manager ' + str(addr))
     while True:
         try:
             command = managerCONN.recv(1024)
             if len(command) > 0:
                 command = command.decode()
                 op = command.split()[0]
-                print("op = "+op)
+                #print("op = "+op)
                 if op == "PRIMARY":
                     is_primary = 1
-                    print("PRIMARY HERE")
+                    print("[Server +] Primary here")
 
                 elif op == "SYNC" or (op == "RESTORE" and is_primary):
                     # store data from manager
                     data = ''.join(command.split()[1:])
                     
                     Voters, Tokens, Challenges, Due, Elections, Ballots = [ast.literal_eval(line) for line in data.split('\x00')]
+                    print("[Server +] "+op+" success.")
+                    '''
                     print("store Voters : "+str(Voters))
                     print("store Tokens : "+str(Tokens))
                     print("store Challenges : "+str(Challenges))
@@ -101,18 +102,19 @@ def ManagerThread():    # loop forever recv()
                     print("store Elections : "+str(Elections))
                     print("store Ballots : "+str(Ballots))
                     print("--------")
+                    '''
                 elif op == "RESTORE" and is_primary == 0:
                     Sync(1)
             else:
-                print("op len error")
+                print("[Server -] Failed to connect to manager.")
                 time.sleep(6)
                 raise ConnectionResetError
 
         except KeyboardInterrupt:
-            print("keyboard interrupt...")
+            print("[Server -] Keyboard interrupt.")
             return
         except Exception as e:
-            print("Manager Thread error: "+str(e))
+            print("[Server -] ManagerThread error: "+str(e))
 
 def checkToken(token):
     votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
@@ -147,7 +149,7 @@ def RegisterVoter(name_var, group_var, key_var):
             PopupWin("Voter Name already exists!")
             return 1
     except Exception as e:
-        print("Register voter error: " + str(e))
+        print("[Server -] Register voter error: " + str(e))
         PopupWin("Undefined error.")
         return 2
 
@@ -321,7 +323,7 @@ class eVoting(vote_grpc.eVotingServicer):
             # PopupWin("Pass.")
             while True:
                 b = os.urandom(4)
-                if b not in Tokens.values():
+                if (b not in Tokens.values() and b != b'\x00\x00'):
                     Tokens[name] = b
                     break
             Due[name] = int((datetime.now()+timedelta(hours=1)).timestamp())
@@ -346,7 +348,7 @@ class eVoting(vote_grpc.eVotingServicer):
                 #PopupWin("invalid authentication token!")
                 return vote.Status(code=1)
                 
-            print("new election : "+elecname+", end at:" +
+            print("[Server +] New election : "+elecname+", end at:" +
                     str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
             Elections[elecname] = (groups, choices, end_date.seconds, token)
             Ballots[elecname] = {}
@@ -357,7 +359,7 @@ class eVoting(vote_grpc.eVotingServicer):
                 
         except Exception as e:
             #PopupWin("Undefined error.")
-            print("Create Election error: " + str(e))
+            print("[Server -] Create Election error: " + str(e))
             return vote.Status(code=3)
 
     def CastVote(self, request, context):
@@ -375,7 +377,6 @@ class eVoting(vote_grpc.eVotingServicer):
             votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
             choice_name = request.choice_name
             checkToken(token)
-            print(votername+"->"+elecname+"->"+choice_name)
             if token not in Tokens.values():
                 return vote.Status(code=1)
             if elecname not in Elections.keys():
@@ -398,12 +399,13 @@ class eVoting(vote_grpc.eVotingServicer):
                 return vote.Status(code=4)
             if choice_name not in Elections[elecname][1]:  # choice not exist
                 return vote.Status(code=5)
+            print("[Server +] New cast : " +votername+"->"+elecname+"->"+choice_name)
             Ballots[elecname][votername] = choice_name
             Sync(0)
             return vote.Status(code=0)
 
         except Exception as e:
-            print("Cast error: " + str(e))
+            print("[Server -] Cast error: " + str(e))
             return vote.Status(code=5)
 
     def GetResult(self, request, context):
@@ -425,7 +427,7 @@ class eVoting(vote_grpc.eVotingServicer):
 
             return vote.ElectionResult(status=0, count=Count_Ballot(elecname))
         except Exception as e:
-            print("Result query error: " + str(e))
+            print("[Server -] Result query error: " + str(e))
             return vote.ElectionResult(status=3, count=[])
 
 
@@ -444,8 +446,7 @@ if __name__ == '__main__':
         manager_thread.start()
         register_thread = threading.Thread(target=RegisterThread)
         register_thread.start()
-        print("Now serving..")
+        print("[Server +] Now serving..")
         serve()
     except KeyboardInterrupt:
-        
-        print("\nTerminated")
+        print("\n[Server] Terminated")

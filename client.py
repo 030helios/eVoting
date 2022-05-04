@@ -1,4 +1,7 @@
 from __future__ import print_function
+from glob import glob
+from shutil import ExecError
+from urllib import response
 from google.protobuf.timestamp_pb2 import Timestamp
 import sys
 import matplotlib
@@ -15,10 +18,31 @@ from datetime import datetime, timezone, timedelta
 from nacl.encoding import Base64Encoder
 
 tz = timezone(timedelta(hours=+8))
-stub = 0
-working_server = 0 #primary
 primaryIP = ""
 backupIP  = ""
+stub = None
+channel = None
+backup_stub = None
+backup_channel = None
+
+def SetConnection(funcName, param):
+    global channel, stub, backup_stub, backup_channel
+    try:
+        grpc_call = getattr(stub, funcName)
+        response = grpc_call(param)
+        print("[Client +] Successfully connecting to primary.")
+    except grpc._channel._InactiveRpcError:
+        print("[Client -] Failed to connect to primary")
+        try:
+            grpc_call = getattr(backup_stub, funcName)
+            response = grpc_call(param)
+            print("[Client +] Successfully connecting to backup.")
+        except grpc._channel._InactiveRpcError:
+            print("[Client -] Failed to connect to backup.")
+    except Exception as e:
+        print("[Client -] SetConnection error: "+str(e))
+    
+    return response
 
 class VoterClass:
     def __init__(self):
@@ -76,30 +100,19 @@ class VoterClass:
 
     def TryAuth(self):
         global stub
-        global primaryIP
-        global backupIP
-        global working_server
-        try:
-            chall = stub.PreAuth(vote.VoterName(name=self.voter_name))
-        except  grpc._channel._InactiveRpcError:   #working_server crash
-            working_server = 0 if working_server==1 else 1
-            channel = grpc.insecure_channel(primaryIP if working_server==0 else backupIP) 
-            stub = vote_grpc.eVotingStub(channel)
-            chall = stub.PreAuth(vote.VoterName(name=self.voter_name))
+        chall = SetConnection("PreAuth", vote.VoterName(name=self.voter_name))
         signed = self.signing_key.sign(chall.value)
         resp = vote.Response(value=signed)
-        response = stub.Auth(vote.AuthRequest(
+        auth_request = vote.AuthRequest(
             name=vote.VoterName(name=self.voter_name), 
-            response=resp)
+            response=resp
             )
+        response = SetConnection("Auth",auth_request)
         self.auth_token = response.value
 
     
     def Button_SendCreation(self, elecname_var, elecgroup_var, choices_var, etime_var):
         global stub
-        global primaryIP
-        global backupIP
-        global working_server
         timestamp = Timestamp()
         dt = datetime.fromisoformat(etime_var.get()).astimezone(tz)
         timestamp.FromDatetime(dt)
@@ -112,13 +125,8 @@ class VoterClass:
             token = vote.AuthToken(value=self.auth_token)
         )
         
-        try:
-            status = stub.CreateElection(election_info).code  
-        except  grpc._channel._InactiveRpcError:   #working_server crash
-            working_server = 0 if working_server==1 else 1
-            with grpc.insecure_channel(primaryIP if working_server==0 else backupIP) as channel:
-                stub = vote_grpc.eVotingStub(channel)
-                status = stub.CreateElection(election_info).code
+        
+        status = SetConnection("CreateElection",election_info).code
         
         if status==0:
             self.PopupWin("Election created successfully!")
@@ -185,7 +193,8 @@ class VoterClass:
             choice_name = choice_var.get(),
             token = vote.AuthToken(value=self.auth_token)
         )
-        status = stub.CastVote(cast_info).code
+        
+        status = SetConnection("CastVote", cast_info).code
         if status==0:
             self.PopupWin("Successful vote!")
             self.cast_win.destroy()
@@ -258,7 +267,8 @@ class VoterClass:
     def Button_SendQuery(self, elecname_var):
         global stub
         query_info = vote.ElectionName(name = elecname_var.get())
-        result = stub.GetResult(query_info)
+        
+        result = SetConnection("GetResult", query_info)
         status = result.status
         ballot_count = result.count
         if status==0:
@@ -269,7 +279,6 @@ class VoterClass:
             self.PopupWin("The election is still ongoing.\nElection result is not available yet.")
         else:
             self.PopupWin("Undefined error.")
-
 
     def Button_VeiwResult(self):
         self.rst_win = tk.Toplevel()
@@ -317,19 +326,19 @@ class VoterClass:
 
 if __name__ == '__main__':
     logging.basicConfig()
-
-    primaryIP = "192.168.181.137:50051"
-    backupIP  = "192.168.220.128:50051"
-    #primaryIP = input("IP:PORT for primary server : ")
-    #backupIP =  input("IP:PORT for backup  server : ")
+    primaryIP = input("IP:PORT for primary server : ")
+    backupIP =  input("IP:PORT for backup  server : ")
 
     voter = VoterClass()
     print("Your public key:")
     print((voter.verify_key.encode(encoder=Base64Encoder)).decode("utf-8"))
-    print("Please register your info on the server then login.")
+    print("Please register your info on the server.\nThen login in the popup window.")
 
-    with grpc.insecure_channel(primaryIP if working_server==0 else backupIP) as channel:
-        stub = vote_grpc.eVotingStub(channel)
-        voter.InputName()
-        voter.TryAuth()
-        voter.HomePage()
+    channel = grpc.insecure_channel(primaryIP)
+    stub = vote_grpc.eVotingStub(channel)
+    backup_channel = grpc.insecure_channel(backupIP)
+    backup_stub = vote_grpc.eVotingStub(backup_channel)
+    
+    voter.InputName()
+    voter.TryAuth()
+    voter.HomePage()
