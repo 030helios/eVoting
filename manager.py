@@ -28,7 +28,7 @@ def PrimaryThread():
             sock["primary"].send("PRIMARY".encode())
             time.sleep(0.1)
             if working_server == 1:
-                sock["backup"].send("RESTORE".encode())
+                sock["backup"].send("SyncSend".encode())
                 working_server = 0
                 mutex.acquire()
                 sock["primary"].send(primaryRestore.encode())  # forword data to primary                    
@@ -39,7 +39,7 @@ def PrimaryThread():
                 if len(primaryCOMM) > 0:
                     primaryCOMM = primaryCOMM.decode()
                     op = primaryCOMM.split()[0]
-                    if op == "SYNC":             # handle sync from primary's new data
+                    if op == "SyncRecv":             # handle sync from primary's new data
                         msg = primaryCOMM
                         sock["backup"].send(msg.encode())  # forword data to backup
                         print("[Manager +] Sync to backup.")
@@ -83,7 +83,7 @@ def BackupThread():
                 backupCOMM = backupCOMM.decode()
                 op = backupCOMM.split()[0]
                 
-                if op == "RESTORE":
+                if op == "SyncRecv":
                     primaryRestore = backupCOMM
                     print("[Manager +] Send restore signal.")
                     mutex.release()
@@ -99,7 +99,8 @@ def BackupThread():
 
 if __name__ == '__main__':
     try:
-        backupIP = input("IP for backup server: ")
+        #backupIP = input("IP for backup server: ")
+        backupIP = "192.168.220.128"
         mutex.acquire()
         primary_thread = threading.Thread(target=PrimaryThread, daemon=True)
         primary_thread.start()

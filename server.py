@@ -34,6 +34,7 @@ Challenges = {}
 Due = {}
 Elections = {}
 Ballots = {}
+BallotTime = {}
 
 Voters, Tokens, Challenges, Due, Elections, Ballots
 
@@ -42,28 +43,24 @@ is_primary = 0
 managerSOCK = None
 managerCONN = None
 
-def Sync(option): 
-    '''
-    option=0: primary > backup 
-    option=1: backup > primary
-    '''
+
+def SyncSend(): 
     global managerCONN
     try:
-        if is_primary ^ option:
-            option = "SYNC " if option == 0 else "RESTORE "
-            #print("[Server +] Syncronizing..")
-            msg =   option + \
-                    str(Voters) + "\x00" + \
-                    str(Tokens) + "\x00" + \
-                    str(Challenges) + "\x00" + \
-                    str(Due) + "\x00" + \
-                    str(Elections) + "\x00" + \
-                    str(Ballots)
-            managerCONN.send(msg.encode())
-            print("[Server +] Send " + option + "done.")
+        option = "SyncRecv "
+        msg =   option + \
+                str(Voters) + "\x00" + \
+                str(Tokens) + "\x00" + \
+                str(Challenges) + "\x00" + \
+                str(Due) + "\x00" + \
+                str(Elections) + "\x00" + \
+                str(Ballots) + "\x00" + \
+                str(BallotTime)
+        managerCONN.send(msg.encode())
+        print("[Server +] SyncSend done.")
         return
     except Exception as e:
-        print("[Server -] Sync/Restore error: "+str(e))
+        print("[Server -] SyncSend error: "+str(e))
         
 def ManagerThread():    # loop forever recv()
     global managerSOCK
@@ -88,23 +85,37 @@ def ManagerThread():    # loop forever recv()
                     is_primary = 1
                     print("[Server +] Primary here")
 
-                elif op == "SYNC" or (op == "RESTORE" and is_primary):
+                elif op == "SyncRecv":
                     # store data from manager
                     data = ''.join(command.split()[1:])
-                    
-                    Voters, Tokens, Challenges, Due, Elections, Ballots = [ast.literal_eval(line) for line in data.split('\x00')]
+                    Voters, Tokens, Challenges, Due, Elections, synBallots, synBallotTime = [ast.literal_eval(line) for line in data.split('\x00')]
+                    # solve conflict
+                    for elect in synBallots.keys():
+                        if elect not in Ballots:
+                            Ballots[elect] = synBallots[elect]
+                            BallotTime[elect] = synBallotTime[elect]
+                            continue
+                        for votr in synBallots[elect].keys():
+                            # sync new vote OR choose earlier vote
+                            if votr not in Ballots[elect] or \
+                               synBallotTime[elect][votr] < BallotTime[elect][votr]:
+                                Ballots[elect][votr] = synBallots[elect][votr]
+                                BallotTime[elect][votr] = synBallotTime[elect][votr]
                     print("[Server +] "+op+" success.")
-                    '''
+                    
                     print("store Voters : "+str(Voters))
                     print("store Tokens : "+str(Tokens))
                     print("store Challenges : "+str(Challenges))
                     print("store Due : "+str(Due))
                     print("store Elections : "+str(Elections))
                     print("store Ballots : "+str(Ballots))
+                    print("store BallotTime : "+str(BallotTime))
                     print("--------")
-                    '''
-                elif op == "RESTORE" and is_primary == 0:
-                    Sync(1)
+                    
+                elif op == "SyncSend":
+                    SyncSend()
+                else:
+                    print("[Server -] \""+command+"\" not found.")
             else:
                 print("[Server -] Failed to connect to manager.")
                 time.sleep(6)
@@ -121,7 +132,7 @@ def checkToken(token):
     if Due[votername] < int(datetime.now().timestamp()):
         del Tokens[votername]
         del Due[votername]
-        Sync(0)
+        SyncSend()
     return
 
 
@@ -142,7 +153,7 @@ def RegisterVoter(name_var, group_var, key_var):
     try:
         if name not in Voters.keys():
             Voters[name] = (group, key)
-            Sync(0)
+            SyncSend()
             PopupWin("Register success!")
             return 0
         else:
@@ -159,7 +170,7 @@ def UnregisterVoter(name_var):
     try:
         if name in Voters.keys():
             del Voters[name]
-            Sync(0)
+            SyncSend()
             PopupWin("Unregister Success!")
             return 0
         else:
@@ -311,7 +322,7 @@ class eVoting(vote_grpc.eVotingServicer):
         name = request.name
         chal = os.urandom(4)
         Challenges[name] = chal
-        Sync(0)
+        SyncSend()
         return vote.Challenge(value=chal)
 
     def Auth(self, request, context):
@@ -327,7 +338,7 @@ class eVoting(vote_grpc.eVotingServicer):
                     Tokens[name] = b
                     break
             Due[name] = int((datetime.now()+timedelta(hours=1)).timestamp())
-            Sync(0)
+            SyncSend()
             return vote.AuthToken(value=b)
         except:
             PopupWin("Fail.")
@@ -347,12 +358,12 @@ class eVoting(vote_grpc.eVotingServicer):
             if token not in Tokens.values():
                 #PopupWin("invalid authentication token!")
                 return vote.Status(code=1)
-                
             print("[Server +] New election : "+elecname+", end at:" +
                     str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
             Elections[elecname] = (groups, choices, end_date.seconds, token)
             Ballots[elecname] = {}
-            Sync(0)
+            BallotTime[elecname] = {}
+            SyncSend()
             #PopupWin("Election created successfully!")
             UpdateElectionFrame()
             return vote.Status(code=0)
@@ -401,7 +412,8 @@ class eVoting(vote_grpc.eVotingServicer):
                 return vote.Status(code=5)
             print("[Server +] New cast : " +votername+"->"+elecname+"->"+choice_name)
             Ballots[elecname][votername] = choice_name
-            Sync(0)
+            BallotTime[elecname][votername] = datetime.timestamp(datetime.now())
+            SyncSend()
             return vote.Status(code=0)
 
         except Exception as e:
@@ -440,6 +452,9 @@ def serve():
 
 
 if __name__ == '__main__':
+    # add my client
+    Voters["a1"] = ("a", Base64Encoder.decode("5bkBKzX1bA7oEqZnUYhI5LliLrNxoereKxbNbwjfPEw="))
+    
     logging.basicConfig()
     try:
         manager_thread = threading.Thread(target=ManagerThread, daemon=True)
