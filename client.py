@@ -326,11 +326,11 @@ class VoterClass:
 
 if __name__ == '__main__':
     logging.basicConfig()
-    primaryIP = input("IP:PORT for primary server : ")
-    backupIP =  input("IP:PORT for backup  server : ")
+    #primaryIP = input("IP:PORT for primary server : ")
+    #backupIP =  input("IP:PORT for backup  server : ")
 
-    #primaryIP = "192.168.220.1:50051"
-    #backupIP = "192.168.220.128:50051"
+    primaryIP = "192.168.220.1:50051"
+    backupIP = "192.168.220.128:50051"
 
     voter = VoterClass()
     print("Your public key:")
@@ -345,3 +345,10 @@ if __name__ == '__main__':
     voter.InputName()
     voter.TryAuth()
     voter.HomePage()
+
+#TODO:
+# partition
+# client choose which server
+# NAK then do not sync
+# color
+# comment

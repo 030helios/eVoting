@@ -36,16 +36,18 @@ Elections = {}
 Ballots = {}
 BallotTime = {}
 
-Voters, Tokens, Challenges, Due, Elections, Ballots
 
 is_primary = 0
 
 managerSOCK = None
 managerCONN = None
-
+mutex = threading.Lock()
+ACK_res = -1
 
 def SyncSend(): 
+    print("SyncSend called.")
     global managerCONN
+    global mutex, ACK_res
     try:
         option = "SyncRecv "
         msg =   option + \
@@ -56,18 +58,34 @@ def SyncSend():
                 str(Elections) + "\x00" + \
                 str(Ballots) + "\x00" + \
                 str(BallotTime)
+        print("[Server +] SyncSend to manager...")
         managerCONN.send(msg.encode())
-        print("[Server +] SyncSend done.")
-        return
+        ACK_res = -1 if ACK_res != 2 else 2
+        if mutex.acquire(timeout=5):
+            if ACK_res == 1: #ACK
+                print("[Server +] SyncSend done and ACK.")
+                return 0
+            elif ACK_res == 0: #NAK
+                print("[Server -] SyncSend done but NAK.")
+                return 1
+            elif ACK_res == 2: #restore
+                pass
+            else:
+                print("[Server -] Syncsend error: ACK response undefined.")
+                return 1
+        else:
+            print("[Server -] SyncSend error: ACK response timeout.")
+            return 1
+
     except Exception as e:
         print("[Server -] SyncSend unexpected error: "+str(e))
-        return
+        return 2
         
 def ManagerThread():    # loop forever recv()
-    global managerSOCK
-    global managerCONN
+    global managerSOCK, managerCONN
     global Voters, Tokens, Challenges, Due, Elections, Ballots
     global is_primary
+    global mutex, ACK_res
     managerSOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     managerSOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     managerSOCK.bind(('', 50052))
@@ -81,7 +99,7 @@ def ManagerThread():    # loop forever recv()
             if len(command) > 0:
                 command = command.decode()
                 op = command.split()[0]
-                #print("op = "+op)
+                print("----- op = "+op+" ------")
                 if op == "PRIMARY":
                     is_primary = 1
                     print("[Server +] Primary here")
@@ -102,6 +120,7 @@ def ManagerThread():    # loop forever recv()
                                synBallotTime[elect][votr] < BallotTime[elect][votr]:
                                 Ballots[elect][votr] = synBallots[elect][votr]
                                 BallotTime[elect][votr] = synBallotTime[elect][votr]
+                    managerCONN.send("ACK".encode())
                     print("[Server +] "+op+" success.")
                     
                     print("store Voters : "+str(Voters))
@@ -114,7 +133,18 @@ def ManagerThread():    # loop forever recv()
                     print("--------")
                     
                 elif op == "SyncSend":
+                    ACK_res = 2
+                    mutex.release()
                     SyncSend()
+
+                elif op == "ACK" or op == "NAK":
+                    ACK_res = 1 if op == "ACK" else 0
+                    try:
+                        mutex.release()
+                    except:
+                        pass
+                elif op == "restoreACK" or op == "restoreNAK":
+                    print(f"[Server +] Restore response: {op}")
                 else:
                     print("[Server -] \""+command+"\" not found.")
             else:
@@ -455,7 +485,7 @@ def serve():
 if __name__ == '__main__':
     # add my client
     Voters["a1"] = ("a", Base64Encoder.decode("5bkBKzX1bA7oEqZnUYhI5LliLrNxoereKxbNbwjfPEw="))
-    
+    mutex.acquire()
     logging.basicConfig()
     try:
         manager_thread = threading.Thread(target=ManagerThread, daemon=True)

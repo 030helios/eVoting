@@ -3,11 +3,14 @@ import time
 import socket
 import threading
 
+from server import ACK_res
+
 working_server = 1 # primary:1 backup:-1
 alive_server = [None, True, True]
 sock = {}
 mutex = [threading.Lock(), threading.Lock(), threading.Lock()] # mutex[0] is unused
-primaryRestore = None
+primaryRestore = ""
+ACK_res = -1
 '''
 def PrimaryThread(sID, sIP, sPORT):
     global working_server
@@ -95,7 +98,7 @@ def BackupThread(sID, sIP, sPORT):
 def serverThread(sID, sIP, sPORT):
     global alive_server
     global sock
-    global mutex
+    global mutex, ACK_res
     global primaryRestore
     while True:
         try:
@@ -107,29 +110,81 @@ def serverThread(sID, sIP, sPORT):
             if sID == 1:
                 sock[sID].send("PRIMARY".encode())
                 time.sleep(0.1)
-            # if sID just relive
-            if alive_server[sID] == False:
+            if alive_server[sID] == False:  # if sID just relive
                 sock[-sID].send("SyncSend".encode())
                 alive_server[sID] = True
-                #mutex[sID].acquire()
-                sock[sID].send(primaryRestore.encode())  # forword data to primary    
+
+                '''
+                primaryRestore = sock[-sID].recv(1024)   ###############
                 print(f"[Manager +] Restore to {sID} .")
-        
+                sock[sID].send(primaryRestore.encode())  # forword data to primary
+                print("waiting restore response...")
+                '''
+                command = sock[sID].recv(1024)
+                print("get restore response!")
+                if len(command) > 0:
+                    command = command.decode()
+                    op = command.split()[0]
+                    if op == "ACK":
+                        ACK_res = 1
+                        print(f"[Manager +] Restore to {sID} : ACK.")
+                        sock[-sID].send("restoreACK".encode())
+                    elif op == "NAK":
+                        ACK_res = 0
+                        print(f"[Manager -] Restore to {sID} : NAK.")
+                        sock[-sID].send("restoreNAK".encode())
+                    else:
+                        ACK_res = 0
+                        print(f"[Manager -] Restore to {sID} : response {op} not defined.")
+                        sock[-sID].send("restoreNAK".encode())
+                    mutex[sID].release()
+                else:
+                    print("[Manager -] raise restore ConnectionResetError")
+                    raise ConnectionResetError
+                    
             while True:
                 command = sock[sID].recv(1024)
                 if len(command) > 0:
                     command = command.decode()
                     op = command.split()[0]
+                    print(f"---- op from {sID} : {op}")
                     if op == "SyncRecv":             # handle sync from primary's new data
                         primaryRestore = command
-                        sock[-sID].send(primaryRestore.encode())  # forword data to backup
-                        print("[Manager +] Sync to", -sID)
+                        ACK_res = -1
+                        print("[Manager +] Sync to", -sID,". Waiting for response...")
+                        try:
+                            sock[-sID].send(primaryRestore.encode())  # forword data to backup
+                        except OSError:
+                            print("[Manager -] Server", -sID, "crashed, so SyncRecv blocked.")
+                            sock[sID].send("NAK".encode())
+                            continue
+                        if mutex[-sID].acquire(timeout=5):
+                            if ACK_res == 1:
+                                print("[Manager +] ACK from server", -sID)
+                                sock[sID].send("ACK".encode())
+                            elif ACK_res == 0:
+                                print("[Manager +] NAK from server", -sID)
+                                sock[sID].send("NAK".encode())
+                            else:
+                                print("[Manager -] ACK_response:", ACK_res, "undefined.")
+                                sock[sID].send("NAK".encode())
+                        else:
+                            print("[Manager -] ACK_response from server", -sID, "timeout.")
+                            sock[sID].send("NAK".encode())
 
+                    elif op == "ACK" or op == "NAK":
+                        print("get ACK or NAK, release mutex...")
+                        ACK_res = 1 if op == "ACK" else 0
+                        try:
+                            mutex[sID].release()
+                        except:
+                            pass
                 else:
+                    print("[Manager -] raise ConnectionResetError")
                     raise ConnectionResetError
 
         except ConnectionResetError:
-            print("[Manager -] Server ",sID," crash detected.")
+            print("[Manager -] Server", sID, "crash detected.")
             alive_server[sID] = False
             sock[sID].shutdown(socket.SHUT_RDWR)
             sock[sID].close()
@@ -153,8 +208,8 @@ if __name__ == '__main__':
     try:
         primaryIP = socket.gethostbyname(socket.gethostname())
         primaryPORT = 50052
-        backupIP = input("IP for backup server: ")
-        #backupIP = "192.168.220.128"
+        #backupIP = input("IP for backup server: ")
+        backupIP = "192.168.220.128"
         backupPORT = 50052
 
         mutex[1].acquire()
