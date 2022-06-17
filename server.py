@@ -60,7 +60,8 @@ def SyncSend():
         print("[Server +] SyncSend done.")
         return
     except Exception as e:
-        print("[Server -] SyncSend error: "+str(e))
+        print("[Server -] SyncSend unexpected error: "+str(e))
+        return
         
 def ManagerThread():    # loop forever recv()
     global managerSOCK
@@ -119,7 +120,7 @@ def ManagerThread():    # loop forever recv()
             else:
                 print("[Server -] Failed to connect to manager.")
                 time.sleep(6)
-                raise ConnectionResetError
+                #raise ConnectionResetError
 
         except KeyboardInterrupt:
             print("[Server -] Keyboard interrupt.")
