@@ -19,38 +19,32 @@ stub = [None,None,None]
 channel = [None,None,None]
 connecting_server = 0
 
+def printc(str, color = 'white'):
+    if color == 'red':
+        print('\033[1;31m' + str + '\033[0;37m')
+    elif color == 'green':
+        print('\033[1;32m' + str + '\033[0;37m')
+    elif color == 'yellow':
+        print('\033[1;33m' + str + '\033[0;37m')
+    else:
+        print('\033[0;37m' + str + '\033[0;37m')
+
 def SetConnection(funcName, param):
     global stub, connecting_server
-    '''
-    try:
-        grpc_call = getattr(stub[connecting_server], funcName)
-        response = grpc_call(param)
-        print(f"[Client +] Successfully connecting to {connecting_server}.")
-    except grpc._channel._InactiveRpcError:
-        print(f"[Client -] Failed to connect to {connecting_server}.")
-        try:
-            grpc_call = getattr(stub[-connecting_server], funcName)
-            response = grpc_call(param)
-            print(f"[Client +] Successfully connecting to {-connecting_server}.")
-        except grpc._channel._InactiveRpcError:
-            print(f"[Client -] Failed to connect to {-connecting_server}.")
-    except Exception as e:
-        print("[Client -] SetConnection error: "+str(e))
-    '''
     while True:
         try:
             grpc_call = getattr(stub[connecting_server], funcName)
             response = grpc_call(param)
-            print(f"[Client +] Successfully connecting to {connecting_server}.")
+            printc(f"[Client +] Successfully connecting to {connecting_server}.", 'green')
             break
         except grpc._channel._InactiveRpcError:
-            print(f"[Client -] Failed to connect to {connecting_server}.")
+            printc(f"[Client -] Failed to connect to {connecting_server}.", 'red')
             connecting_server = -connecting_server
         except KeyboardInterrupt:
             print("[Client] Keyboard Interrupt.")
             break
         except Exception as e:
-            print("[Client -] SetConnection error: "+str(e))
+            printc("[Client -] SetConnection error: "+str(e), 'red')
     return response
 
 class VoterClass:
@@ -354,7 +348,7 @@ if __name__ == '__main__':
     voter = VoterClass()
     print("Your public key:")
     print((voter.verify_key.encode(encoder=Base64Encoder)).decode("utf-8"))
-    print("Please register your info on the server.\nThen login in the popup window.")
+    print("\nPlease register your info on the server.\nThen login in the popup window.")
 
     channel[1] = grpc.insecure_channel(primaryIP)
     stub[1] = vote_grpc.eVotingStub(channel[1])
@@ -364,7 +358,3 @@ if __name__ == '__main__':
     voter.InputName()
     voter.TryAuth()
     voter.HomePage()
-
-#TODO:
-# color
-# comment

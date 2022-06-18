@@ -4,25 +4,20 @@ import os
 import sys
 import threading
 import tkinter as tk
-from collections import deque
 from concurrent import futures
 from datetime import datetime, timedelta, timezone
 from tkinter import ttk
 import socket
 import time
 
-
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
-from nacl.public import Box, PrivateKey
 from nacl.signing import VerifyKey
 from nacl.encoding import Base64Encoder
 
 sys.path.append('proto')
 import proto.vote_pb2 as vote
 import proto.vote_pb2_grpc as vote_grpc
-
-
 
 tz = timezone(timedelta(hours=+8))
 Voters = {}
@@ -33,13 +28,54 @@ Elections = {}
 Ballots = {}
 BallotTime = {}
 
-
 is_primary = 0
+partition = False
 
 managerSOCK = None
 managerCONN = None
 mutex = threading.Lock()
 ACK_res = -1
+
+def printc(str, color = 'white'):
+    if color == 'red':
+        print('\033[1;31m' + str + '\033[0;37m')
+    elif color == 'green':
+        print('\033[1;32m' + str + '\033[0;37m')
+    elif color == 'yellow':
+        print('\033[1;33m' + str + '\033[0;37m')
+    else:
+        print('\033[0;37m' + str + '\033[0;37m')
+
+def TestThread():
+    global partition
+    while True:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(('', 50053))
+            s.listen(5)
+            conn, addr = s.accept()
+            print("TestThread connected.")
+            conn.settimeout(5)
+            while True:
+                conn.send("alive".encode())
+                command = conn.recv(4096)
+                if len(command) > 0:
+                    partition = False
+                    print(f"Recieve from manager:{command.decode()}")
+                    time.sleep(3)
+                    continue
+                else:
+                    partition = True
+                    break
+            
+        except socket.timeout:
+            partition = True
+            s.shutdown(socket.SHUT_RDWR)
+            s.close()
+            print("TestThread error : TIMEOUT")
+            continue
+
 
 def SyncSend(): 
     global managerCONN
@@ -54,34 +90,34 @@ def SyncSend():
                 str(Elections) + "\x00" + \
                 str(Ballots) + "\x00" + \
                 str(BallotTime)
-        print("[Server +] SyncSend to manager...")
+        printc("[Server +] SyncSend to manager...", 'green')
         managerCONN.send(msg.encode())
         ACK_res = -1 if ACK_res != 2 else 2
         if mutex.acquire(timeout=8):
             if ACK_res == 1: #ACK
-                print("[Server +] SyncSend done and ACK.")
+                printc("[Server +] SyncSend done and ACK.", 'green')
                 return 0
             elif ACK_res == 0: #NAK
-                print("[Server -] SyncSend done but NAK.")
+                printc("[Server -] SyncSend done but NAK.", 'yellow')
                 return 1
             elif ACK_res == 2: #restore
                 pass
-                #print("[Server +] Restore to server "+("-1" if(is_primary) else "1")+".")
+                #printc("[Server +] Restore to server "+("-1" if(is_primary) else "1")+".", 'green')
             else:
-                print(f"[Server -] Syncsend error: ACK response:{ACK_res} undefined.")
+                printc(f"[Server -] Syncsend error: ACK response:{ACK_res} undefined.", 'red')
                 return 1
         else:
-            print("[Server -] SyncSend error: ACK response timeout.")
+            printc("[Server -] SyncSend error: ACK response timeout.", 'yellow')
             return 1
 
     except Exception as e:
-        print("[Server -] SyncSend unexpected error: "+str(e))
+        printc("[Server -] SyncSend unexpected error: "+str(e), 'red')
         return 2
         
 def ManagerThread():    # loop forever receive()
     global managerSOCK, managerCONN
     global Voters, Tokens, Challenges, Due, Elections, Ballots
-    global is_primary
+    global is_primary, partition
     global mutex, ACK_res
     while True:
         managerSOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -90,16 +126,23 @@ def ManagerThread():    # loop forever receive()
         managerSOCK.listen(5)
 
         managerCONN, addr = managerSOCK.accept()
-        print('[Server +] Connected by manager ' + str(addr))
+        partition = False
+        managerCONN.settimeout(3)
+        printc('[Server +] Connected by manager ' + str(addr[0]), 'green')
         while True:
             try:
+                if partition:
+                    raise ConnectionResetError
+
+                print("Listening...")
                 command = managerCONN.recv(4096)
+                print("Recieve!")
                 if len(command) > 0:
                     command = command.decode()
                     op = command.split()[0]
                     if op == "PRIMARY":
                         is_primary = 1
-                        print("[Server +] Primary here")
+                        printc("[Server +] Primary here", 'green')
 
                     elif op == "SyncRecv":
                         # store data from manager
@@ -107,8 +150,14 @@ def ManagerThread():    # loop forever receive()
                         synVoters, synTokens, synChallenges, synDue, Elections, synBallots, synBallotTime = [ast.literal_eval(line) for line in data.split('\x00')]
                         
                         # solve conflict: Voters
-                        for voter_name in synVoters:
+                        for voter_name in synVoters.keys():
                             Voters[voter_name] = synVoters[voter_name]
+                            if voter_name in synTokens.keys():
+                                Tokens[voter_name] = synTokens[voter_name]
+                            if voter_name in synChallenges.keys():
+                                Challenges[voter_name] = synChallenges[voter_name]
+                            if voter_name in synDue.keys():
+                                Due[voter_name] = synDue[voter_name]
 
                         # solve conflict: Ballots
                         for elect in synBallots.keys():
@@ -123,7 +172,7 @@ def ManagerThread():    # loop forever receive()
                                     Ballots[elect][votr] = synBallots[elect][votr]
                                     BallotTime[elect][votr] = synBallotTime[elect][votr]
                         managerCONN.send("ACK".encode())
-                        print("[Server +] "+op+" success.")
+                        printc("[Server +] "+op+" success.", 'green')
                         '''
                         print("store Voters : "+str(Voters))
                         print("store Tokens : "+str(Tokens))
@@ -135,7 +184,7 @@ def ManagerThread():    # loop forever receive()
                         print("--------")
                         '''
                     elif op == "SyncSend":
-                        print("[Server +] Send Restore data to "+("-1" if(is_primary) else "1")+"...")
+                        printc("[Server +] Send Restore data to "+("-1" if(is_primary) else "1")+"...",'green')
                         ACK_res = 2
                         if mutex.locked():
                             mutex.release()
@@ -143,9 +192,9 @@ def ManagerThread():    # loop forever receive()
 
                     elif op == "ACK" or op == "NAK":
                         if op == "ACK":
-                            print("[Server +] Recieve an ACK.")
+                            printc("[Server +] Recieve an ACK.", 'green')
                         else:
-                            print("[Server -] Recieve a NAK.")
+                            printc("[Server -] Recieve a NAK.", 'yellow')
                         if ACK_res == 2:
                             ACK_res = -1
                             continue
@@ -153,23 +202,26 @@ def ManagerThread():    # loop forever receive()
                         if mutex.locked():
                             mutex.release()
                     elif op == "restoreACK" or op == "restoreNAK":
-                        print(f"[Server +] Restore response: {op}")
+                        printc(f"[Server +] Restore response: {op}", 'green')
                     else:
-                        print("[Server -] \""+command+"\" not found.")
+                        printc("[Server -] \""+command+"\" not found.", 'red')
                 else:
-                    print("[Server -] Failed to connect to manager.")
-                    time.sleep(3)
                     raise ConnectionResetError
 
             except KeyboardInterrupt:
-                print("[Server -] Keyboard interrupt.")
+                print("[Server] Keyboard interrupt.")
                 return
             except ConnectionResetError:
+                printc("[Server -] Failed to connect to manager.", 'red')
+                managerSOCK.shutdown(socket.SHUT_RDWR)
+                managerSOCK.close()
+                time.sleep(3)
                 break
-            '''
+            except socket.timeout:
+                continue
             except Exception as e:
-                print("[Server -] ManagerThread error: "+str(e))
-            '''
+                printc("[Server -] ManagerThread error: "+str(e), 'red')
+            
 def checkToken(token):
     votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
     if Due[votername] < int(datetime.now().timestamp()):
@@ -203,7 +255,7 @@ def RegisterVoter(name_var, group_var, key_var):
             PopupWin("Voter Name already exists!")
             return 1
     except Exception as e:
-        print("[Server -] Register voter error: " + str(e))
+        printc("[Server -] Register voter error: " + str(e), 'red')
         PopupWin("Undefined error.")
         return 2
 
@@ -401,8 +453,8 @@ class eVoting(vote_grpc.eVotingServicer):
             if token not in Tokens.values():
                 #PopupWin("invalid authentication token!")
                 return vote.Status(code=1)
-            print("[Server +] New election : "+elecname+", end at:" +
-                    str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)))
+            printc("[Server +] New election : "+elecname+", end at:" +
+                    str(datetime.fromtimestamp(end_date.seconds).astimezone(tz)), 'green')
             Elections[elecname] = (groups, choices, end_date.seconds, token)
             Ballots[elecname] = {}
             BallotTime[elecname] = {}
@@ -417,7 +469,7 @@ class eVoting(vote_grpc.eVotingServicer):
                 
         except Exception as e:
             #PopupWin("Undefined error.")
-            print("[Server -] Create Election error: " + str(e))
+            printc("[Server -] Create Election error: " + str(e), 'red')
             return vote.Status(code=3)
 
     def CastVote(self, request, context):
@@ -457,14 +509,14 @@ class eVoting(vote_grpc.eVotingServicer):
                 return vote.Status(code=4)
             if choice_name not in Elections[elecname][1]:  # choice not exist
                 return vote.Status(code=5)
-            print("[Server +] New cast : " +votername+"->"+elecname+"->"+choice_name)
+            printc("[Server +] New cast : " +votername+"->"+elecname+"->"+choice_name,'green')
             Ballots[elecname][votername] = choice_name
             BallotTime[elecname][votername] = datetime.timestamp(datetime.now())
             SyncSend()
             return vote.Status(code=0)
 
         except Exception as e:
-            print("[Server -] Cast error: " + str(e))
+            printc("[Server -] Cast error: " + str(e),'red')
             return vote.Status(code=5)
 
     def GetResult(self, request, context):
@@ -486,7 +538,7 @@ class eVoting(vote_grpc.eVotingServicer):
 
             return vote.ElectionResult(status=0, count=Count_Ballot(elecname))
         except Exception as e:
-            print("[Server -] Result query error: " + str(e))
+            printc("[Server -] Result query error: " + str(e), 'red')
             return vote.ElectionResult(status=3, count=[])
 
 
@@ -510,7 +562,9 @@ if __name__ == '__main__':
         manager_thread.start()
         register_thread = threading.Thread(target=RegisterThread)
         register_thread.start()
-        print("[Server +] Now serving..")
+        test_thread = threading.Thread(target=TestThread, daemon=True)
+        test_thread.start()
+        printc("[Server +] Now serving..", 'green')
         serve()
     except KeyboardInterrupt:
         print("\n[Server] Terminated")

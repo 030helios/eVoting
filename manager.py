@@ -1,15 +1,59 @@
-from glob import glob
 import time
 import socket
 import threading
 
 
-working_server = 1 # primary:1 backup:-1
 alive_server = [None, True, True]
 sock = {}
 mutex = [threading.Lock(), threading.Lock(), threading.Lock()] # mutex[0] is unused
 primaryRestore = ""
 ACK_res = -1
+
+def printc(str, color = 'white'):
+    if color == 'red':
+        print('\033[1;31m' + str + '\033[0;37m')
+    elif color == 'green':
+        print('\033[1;32m' + str + '\033[0;37m')
+    elif color == 'yellow':
+        print('\033[1;33m' + str + '\033[0;37m')
+    else:
+        print('\033[0;37m' + str + '\033[0;37m')
+
+def testThread(sID,sIP,sPORT):
+    global alive_server, sock
+    while True:
+        try:
+            testsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            testsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            testsock.settimeout(5)
+            testsock.connect((sIP, sPORT+1))
+            print(f"testThread {sID} connected.")
+            while True:
+                command = testsock.recv(4096)
+                if len(command) > 0:
+                    print(f"Recieve from {sID}: {command.decode()}")
+                    testsock.send("OK".encode())
+                else:
+                    print(f"TestThread error: server {sID} len <= 0")
+                    alive_server[sID] = False
+                    try:
+                        sock[sID].shutdown(socket.SHUT_RDWR)
+                        sock[sID].close()
+                    except:
+                        pass
+                    break
+        except (ConnectionRefusedError, ConnectionResetError):
+            pass
+
+        except socket.timeout:
+            print(f"TestThread error: server {sID} TIMEOUT")
+            alive_server[sID] = False
+            try:
+                sock[sID].shutdown(socket.SHUT_RDWR)
+                sock[sID].close()
+            except:
+                pass
+
 
 def serverThread(sID, sIP, sPORT):
     global alive_server
@@ -21,8 +65,8 @@ def serverThread(sID, sIP, sPORT):
             sock[sID] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock[sID].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock[sID].connect((sIP, sPORT))
-            print("[Manager +] Connect server", sID, "done.")
-            time.sleep(0.1)
+            printc(f"[Manager +] Connect server {sID} done.", 'green')
+            time.sleep(0.5)
             if sID == 1:
                 sock[sID].send("PRIMARY".encode())
                 time.sleep(0.1)
@@ -37,18 +81,18 @@ def serverThread(sID, sIP, sPORT):
                     op = command.split()[0]
                     if op == "ACK":
                         ACK_res = 1
-                        print(f"[Manager +] Restore to {sID} : ACK.")
+                        printc(f"[Manager +] Restore to {sID} : ACK.", 'green')
                         sock[-sID].send("restoreACK".encode())
                     elif op == "NAK":
                         ACK_res = 0
-                        print(f"[Manager -] Restore to {sID} : NAK.")
+                        printc(f"[Manager -] Restore to {sID} : NAK.", 'red')
                         sock[-sID].send("restoreNAK".encode())
                     else:
                         ACK_res = 0
-                        print(f"[Manager -] Restore to {sID} : response {op} not defined.")
+                        printc(f"[Manager -] Restore to {sID} : response {op} not defined.", 'red')
                         sock[-sID].send("restoreNAK".encode())
                 else:
-                    print("[Manager -] raise restore ConnectionResetError")
+                    printc("[Manager -] raise restore ConnectionResetError", 'red')
                     raise ConnectionResetError
                 
                 ############# second restore #############
@@ -61,28 +105,28 @@ def serverThread(sID, sIP, sPORT):
                 if len(command) > 0:
                     command = command.decode()
                     op = command.split()[0]
-                    if op == "SyncRecv":             # handle sync from primary's new data
+                    if op == "SyncRecv":             # redirect Sync data
                         primaryRestore = command
                         ACK_res = -1
-                        print("[Manager +] Sync to", -sID,". Waiting for response...")
+                        printc(f"[Manager +] Sync to {-sID}. Waiting for response...", 'green')
                         try:
-                            sock[-sID].send(primaryRestore.encode())  # forword data to backup
+                            sock[-sID].send(primaryRestore.encode())  # forword data to another server
                         except OSError:
-                            print("[Manager -] Server", -sID, "crashed, so SyncRecv blocked.")
+                            printc(f"[Manager -] Server {-sID} crashed, so SyncRecv blocked.", 'yellow')
                             sock[sID].send("NAK".encode())
                             continue
                         if mutex[-sID].acquire(timeout=5):
                             if ACK_res == 1:
-                                print("[Manager +] ACK from server", -sID)
+                                printc(f"[Manager +] ACK from server {-sID}.", 'green')
                                 sock[sID].send("ACK".encode())
                             elif ACK_res == 0:
-                                print("[Manager +] NAK from server", -sID)
+                                printc(f"[Manager +] NAK from server {-sID}.", 'yellow')
                                 sock[sID].send("NAK".encode())
                             else:
-                                print("[Manager -] ACK_response:", ACK_res, "undefined.")
+                                printc(f"[Manager -] ACK_response:{ACK_res} undefined.", 'red')
                                 sock[sID].send("NAK".encode())
                         else:
-                            print("[Manager -] ACK_response from server", -sID, "timeout.")
+                            printc(f"[Manager -] ACK_response from server {-sID} TIMEOUT.", 'yellow')
                             sock[sID].send("NAK".encode())
 
                     elif op == "ACK" or op == "NAK":
@@ -92,35 +136,49 @@ def serverThread(sID, sIP, sPORT):
                         except:
                             pass
                 else:
-                    print("[Manager -] raise ConnectionResetError")
+                    printc("[Manager -] raise ConnectionResetError.", 'red')
                     raise ConnectionResetError
 
         except ConnectionResetError:
-            print("[Manager -] Server", sID, "crash detected.")
+            printc(f"[Manager -] Server {sID} crash detected.", 'red')
             alive_server[sID] = False
-            sock[sID].shutdown(socket.SHUT_RDWR)
-            sock[sID].close()
+            try:
+                sock[sID].shutdown(socket.SHUT_RDWR)
+                sock[sID].close()
+            except:
+                pass
                 
         except KeyboardInterrupt:
-            print("[Manager -] Keyboard interrupted.")
+            print("[Manager] Keyboard interrupted.")
             sock[sID].shutdown(socket.SHUT_RDWR)
             sock[sID].close()
             return
         
         except ConnectionRefusedError: 
             # server still crash, reconnect
-            print("[Manager -] Server", sID, "crash detected.")
-            alive_server[sID] = False
-            time.sleep(0.1)
-        except TimeoutError: 
-            # server still crash, reconnect
-            print("[Manager -] Server", sID, "crash detected.")
+            printc(f"[Manager -] Server {sID} crash detected.(REFUSED)", 'red')
             alive_server[sID] = False
             time.sleep(0.1)
         
+        except TimeoutError: 
+            # server still crash, reconnect
+            printc(f"[Manager -] Server {sID} crash detected.(TIMEOUT)", 'red')
+            alive_server[sID] = False
+            try:
+                sock[sID].shutdown(socket.SHUT_RDWR)
+                sock[sID].close()
+            except:
+                pass
+            time.sleep(0.1)
+        except OSError:
+            printc(f"[Manager -] Server {sID} crash detected.(OSError)", 'red')
+            alive_server[sID] = False
+            time.sleep(0.1)
+
+        '''
         except Exception as e:
-            print("[Manager -] serverThread error: "+str(e))
-            
+            printc("[Manager -] serverThread error: "+str(e), 'red')
+            '''
 
 
 if __name__ == '__main__':
@@ -141,6 +199,14 @@ if __name__ == '__main__':
            target=serverThread, daemon=True, args=(-1, backupIP, backupPORT))
         backup_thread.start()
         
+        test_primary = threading.Thread(
+           target=testThread, daemon=True, args=(1, primaryIP, primaryPORT))
+        test_primary.start()
+
+        test_backup = threading.Thread(
+           target=testThread, daemon=True, args=(-1, backupIP, backupPORT))
+        test_backup.start()
+
         while True: 
             time.sleep(100)
     except KeyboardInterrupt:
