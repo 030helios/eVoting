@@ -27,10 +27,11 @@ def serverThread(sID, sIP, sPORT):
                 sock[sID].send("PRIMARY".encode())
                 time.sleep(0.1)
             if alive_server[sID] == False:  # if sID just relive
-                sock[-sID].send("SyncSend".encode())
                 alive_server[sID] = True
 
-                command = sock[sID].recv(1024)
+                ############# first restore #############
+                sock[-sID].send("SyncSend".encode())
+                command = sock[sID].recv(4096)
                 if len(command) > 0:
                     command = command.decode()
                     op = command.split()[0]
@@ -46,13 +47,17 @@ def serverThread(sID, sIP, sPORT):
                         ACK_res = 0
                         print(f"[Manager -] Restore to {sID} : response {op} not defined.")
                         sock[-sID].send("restoreNAK".encode())
-                    mutex[sID].release()
                 else:
                     print("[Manager -] raise restore ConnectionResetError")
                     raise ConnectionResetError
+                
+                ############# second restore #############
+                sock[sID].send("SyncSend".encode())
+                if mutex[sID].locked():
+                    mutex[sID].release()
                     
             while True:
-                command = sock[sID].recv(1024)
+                command = sock[sID].recv(4096)
                 if len(command) > 0:
                     command = command.decode()
                     op = command.split()[0]
@@ -103,8 +108,15 @@ def serverThread(sID, sIP, sPORT):
             return
         
         except ConnectionRefusedError: 
-            # primary still crash, reconnect
-            time.sleep(0.3)
+            # server still crash, reconnect
+            print("[Manager -] Server", sID, "crash detected.")
+            alive_server[sID] = False
+            time.sleep(0.1)
+        except TimeoutError: 
+            # server still crash, reconnect
+            print("[Manager -] Server", sID, "crash detected.")
+            alive_server[sID] = False
+            time.sleep(0.1)
         
         except Exception as e:
             print("[Manager -] serverThread error: "+str(e))

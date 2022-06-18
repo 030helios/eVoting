@@ -366,8 +366,5 @@ if __name__ == '__main__':
     voter.HomePage()
 
 #TODO:
-# partition
-# 
-# NAK then do not sync
 # color
 # comment

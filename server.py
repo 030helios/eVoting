@@ -7,10 +7,7 @@ import tkinter as tk
 from collections import deque
 from concurrent import futures
 from datetime import datetime, timedelta, timezone
-from secrets import choice
 from tkinter import ttk
-from tokenize import group
-
 import socket
 import time
 
@@ -60,7 +57,7 @@ def SyncSend():
         print("[Server +] SyncSend to manager...")
         managerCONN.send(msg.encode())
         ACK_res = -1 if ACK_res != 2 else 2
-        if mutex.acquire(timeout=5):
+        if mutex.acquire(timeout=8):
             if ACK_res == 1: #ACK
                 print("[Server +] SyncSend done and ACK.")
                 return 0
@@ -68,7 +65,8 @@ def SyncSend():
                 print("[Server -] SyncSend done but NAK.")
                 return 1
             elif ACK_res == 2: #restore
-                print("[Server +] Restore to server "+("-1" if(is_primary) else "1")+".")
+                pass
+                #print("[Server +] Restore to server "+("-1" if(is_primary) else "1")+".")
             else:
                 print(f"[Server -] Syncsend error: ACK response:{ACK_res} undefined.")
                 return 1
@@ -85,78 +83,93 @@ def ManagerThread():    # loop forever receive()
     global Voters, Tokens, Challenges, Due, Elections, Ballots
     global is_primary
     global mutex, ACK_res
-    managerSOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    managerSOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    managerSOCK.bind(('', 50052))
-    managerSOCK.listen(5)
-
-    managerCONN, addr = managerSOCK.accept()
-    print('[Server +] Connected by manager ' + str(addr))
     while True:
-        try:
-            command = managerCONN.recv(1024)
-            if len(command) > 0:
-                command = command.decode()
-                op = command.split()[0]
-                if op == "PRIMARY":
-                    is_primary = 1
-                    print("[Server +] Primary here")
+        managerSOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        managerSOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        managerSOCK.bind(('', 50052))
+        managerSOCK.listen(5)
 
-                elif op == "SyncRecv":
-                    # store data from manager
-                    data = ''.join(command.split()[1:])
-                    Voters, Tokens, Challenges, Due, Elections, synBallots, synBallotTime = [ast.literal_eval(line) for line in data.split('\x00')]
-                    # solve conflict
-                    for elect in synBallots.keys():
-                        if elect not in Ballots:
-                            Ballots[elect] = synBallots[elect]
-                            BallotTime[elect] = synBallotTime[elect]
+        managerCONN, addr = managerSOCK.accept()
+        print('[Server +] Connected by manager ' + str(addr))
+        while True:
+            try:
+                command = managerCONN.recv(4096)
+                if len(command) > 0:
+                    command = command.decode()
+                    op = command.split()[0]
+                    if op == "PRIMARY":
+                        is_primary = 1
+                        print("[Server +] Primary here")
+
+                    elif op == "SyncRecv":
+                        # store data from manager
+                        data = ''.join(command.split()[1:])
+                        synVoters, synTokens, synChallenges, synDue, Elections, synBallots, synBallotTime = [ast.literal_eval(line) for line in data.split('\x00')]
+                        
+                        # solve conflict: Voters
+                        for voter_name in synVoters:
+                            Voters[voter_name] = synVoters[voter_name]
+
+                        # solve conflict: Ballots
+                        for elect in synBallots.keys():
+                            if elect not in Ballots:
+                                Ballots[elect] = synBallots[elect]
+                                BallotTime[elect] = synBallotTime[elect]
+                                continue
+                            for votr in synBallots[elect].keys():
+                                # sync new vote OR choose earlier vote
+                                if votr not in Ballots[elect] or \
+                                synBallotTime[elect][votr] < BallotTime[elect][votr]:
+                                    Ballots[elect][votr] = synBallots[elect][votr]
+                                    BallotTime[elect][votr] = synBallotTime[elect][votr]
+                        managerCONN.send("ACK".encode())
+                        print("[Server +] "+op+" success.")
+                        '''
+                        print("store Voters : "+str(Voters))
+                        print("store Tokens : "+str(Tokens))
+                        print("store Challenges : "+str(Challenges))
+                        print("store Due : "+str(Due))
+                        print("store Elections : "+str(Elections))
+                        print("store Ballots : "+str(Ballots))
+                        print("store BallotTime : "+str(BallotTime))
+                        print("--------")
+                        '''
+                    elif op == "SyncSend":
+                        print("[Server +] Send Restore data to "+("-1" if(is_primary) else "1")+"...")
+                        ACK_res = 2
+                        if mutex.locked():
+                            mutex.release()
+                        SyncSend()
+
+                    elif op == "ACK" or op == "NAK":
+                        if op == "ACK":
+                            print("[Server +] Recieve an ACK.")
+                        else:
+                            print("[Server -] Recieve a NAK.")
+                        if ACK_res == 2:
+                            ACK_res = -1
                             continue
-                        for votr in synBallots[elect].keys():
-                            # sync new vote OR choose earlier vote
-                            if votr not in Ballots[elect] or \
-                               synBallotTime[elect][votr] < BallotTime[elect][votr]:
-                                Ballots[elect][votr] = synBallots[elect][votr]
-                                BallotTime[elect][votr] = synBallotTime[elect][votr]
-                    managerCONN.send("ACK".encode())
-                    print("[Server +] "+op+" success.")
-                    '''
-                    print("store Voters : "+str(Voters))
-                    print("store Tokens : "+str(Tokens))
-                    print("store Challenges : "+str(Challenges))
-                    print("store Due : "+str(Due))
-                    print("store Elections : "+str(Elections))
-                    print("store Ballots : "+str(Ballots))
-                    print("store BallotTime : "+str(BallotTime))
-                    print("--------")
-                    '''
-                elif op == "SyncSend":
-                    ACK_res = 2
-                    mutex.release()
-                    SyncSend()
-
-                elif op == "ACK" or op == "NAK":
-                    if ACK_res == 2:
-                        ACK_res = -1
-                        continue
-                    ACK_res = 1 if op == "ACK" else 0
-                    if mutex.locked():
-                        mutex.release()
-                elif op == "restoreACK" or op == "restoreNAK":
-                    print(f"[Server +] Restore response: {op}")
+                        ACK_res = 1 if op == "ACK" else 0
+                        if mutex.locked():
+                            mutex.release()
+                    elif op == "restoreACK" or op == "restoreNAK":
+                        print(f"[Server +] Restore response: {op}")
+                    else:
+                        print("[Server -] \""+command+"\" not found.")
                 else:
-                    print("[Server -] \""+command+"\" not found.")
-            else:
-                print("[Server -] Failed to connect to manager.")
-                time.sleep(6)
-                #raise ConnectionResetError
+                    print("[Server -] Failed to connect to manager.")
+                    time.sleep(3)
+                    raise ConnectionResetError
 
-        except KeyboardInterrupt:
-            print("[Server -] Keyboard interrupt.")
-            return
-        except Exception as e:
-            print("[Server -] ManagerThread error: "+str(e))
-
+            except KeyboardInterrupt:
+                print("[Server -] Keyboard interrupt.")
+                return
+            except ConnectionResetError:
+                break
+            '''
+            except Exception as e:
+                print("[Server -] ManagerThread error: "+str(e))
+            '''
 def checkToken(token):
     votername = list(Tokens.keys())[list(Tokens.values()).index(token)]
     if Due[votername] < int(datetime.now().timestamp()):
@@ -393,7 +406,11 @@ class eVoting(vote_grpc.eVotingServicer):
             Elections[elecname] = (groups, choices, end_date.seconds, token)
             Ballots[elecname] = {}
             BallotTime[elecname] = {}
-            SyncSend()
+            if SyncSend() == 1: # NAK, abort.
+                del Elections[elecname]
+                del Ballots[elecname]
+                del BallotTime[elecname]
+                return vote.Status(code=3)
             #PopupWin("Election created successfully!")
             UpdateElectionFrame()
             return vote.Status(code=0)
@@ -482,8 +499,10 @@ def serve():
 
 
 if __name__ == '__main__':
-    # add my client
+    # pre-register my clients
     Voters["a1"] = ("a", Base64Encoder.decode("5bkBKzX1bA7oEqZnUYhI5LliLrNxoereKxbNbwjfPEw="))
+    Voters["a2"] = ("a", Base64Encoder.decode("5bkBKzX1bA7oEqZnUYhI5LliLrNxoereKxbNbwjfPEw="))
+
     mutex.acquire()
     logging.basicConfig()
     try:
