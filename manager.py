@@ -3,7 +3,6 @@ import time
 import socket
 import threading
 
-from server import ACK_res
 
 working_server = 1 # primary:1 backup:-1
 alive_server = [None, True, True]
@@ -11,89 +10,6 @@ sock = {}
 mutex = [threading.Lock(), threading.Lock(), threading.Lock()] # mutex[0] is unused
 primaryRestore = ""
 ACK_res = -1
-'''
-def PrimaryThread(sID, sIP, sPORT):
-    global working_server
-    global sock
-    global mutex
-    global primaryRestore
-    while True:
-        try:
-            sock[sID] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock[sID].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock[sID].connect((sIP, sPORT))
-            print("[Manager +] Connect primary done.")
-            time.sleep(0.1)
-            sock[sID].send("PRIMARY".encode())
-            time.sleep(0.1)
-            if working_server == 1:
-                sock[-sID].send("SyncSend".encode())
-                working_server = 0
-                mutex.acquire()
-                sock[sID].send(primaryRestore.encode())  # forword data to primary   
-                print("[Manager +] Restore to primary.")
-        
-            while working_server == 0:  # primary power-on
-                primaryCOMM = sock[sID].recv(1024)
-                if len(primaryCOMM) > 0:
-                    primaryCOMM = primaryCOMM.decode()
-                    op = primaryCOMM.split()[0]
-                    if op == "SyncRecv":             # handle sync from primary's new data
-                        msg = primaryCOMM
-                        sock[-sID].send(msg.encode())  # forword data to backup
-                        print("[Manager +] Sync to backup.")
-                else:
-                    raise ConnectionResetError
-
-        except ConnectionResetError:
-            print("[Manager -] Primary crash detected.")
-            working_server = 1
-            sock[sID].shutdown(socket.SHUT_RDWR)
-            sock[sID].close()
-                
-        except KeyboardInterrupt:
-            print("[Manager -] Keyboard interrupted.")
-            sock[sID].shutdown(socket.SHUT_RDWR)
-            sock[sID].close()
-            return
-        
-        except ConnectionRefusedError: 
-            # primary still crash, reconnect
-            time.sleep(0.3)
-        
-        except Exception as e:
-            print("[Manager -] PrimaryThread error: "+str(e))
-            
-
-def BackupThread(sID, sIP, sPORT):
-    global sock
-    global mutex
-    global primaryRestore
-    sock[sID] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock[sID].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock[sID].connect((sIP, sPORT))
-
-    try:
-        while True:
-            backupCOMM = sock[sID].recv(1024)
-            if len(backupCOMM) > 0:
-                backupCOMM = backupCOMM.decode()
-                op = backupCOMM.split()[0]
-                
-                if op == "SyncRecv":
-                    primaryRestore = backupCOMM
-                    print("[Manager +] Send restore signal.")
-                    mutex.release()
-                
-    except KeyboardInterrupt:
-        print("[Manager -] Keyboard interrupted.")
-        sock[sID].shutdown(socket.SHUT_RDWR)
-        sock[sID].close()
-        
-        return
-    except Exception as e:
-        print("[Manager -] BackupThread error: "+str(e))
-'''
 
 def serverThread(sID, sIP, sPORT):
     global alive_server
@@ -114,14 +30,7 @@ def serverThread(sID, sIP, sPORT):
                 sock[-sID].send("SyncSend".encode())
                 alive_server[sID] = True
 
-                '''
-                primaryRestore = sock[-sID].recv(1024)   ###############
-                print(f"[Manager +] Restore to {sID} .")
-                sock[sID].send(primaryRestore.encode())  # forword data to primary
-                print("waiting restore response...")
-                '''
                 command = sock[sID].recv(1024)
-                print("get restore response!")
                 if len(command) > 0:
                     command = command.decode()
                     op = command.split()[0]
@@ -147,7 +56,6 @@ def serverThread(sID, sIP, sPORT):
                 if len(command) > 0:
                     command = command.decode()
                     op = command.split()[0]
-                    print(f"---- op from {sID} : {op}")
                     if op == "SyncRecv":             # handle sync from primary's new data
                         primaryRestore = command
                         ACK_res = -1
@@ -173,7 +81,6 @@ def serverThread(sID, sIP, sPORT):
                             sock[sID].send("NAK".encode())
 
                     elif op == "ACK" or op == "NAK":
-                        print("get ACK or NAK, release mutex...")
                         ACK_res = 1 if op == "ACK" else 0
                         try:
                             mutex[sID].release()

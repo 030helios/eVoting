@@ -1,10 +1,5 @@
-from __future__ import print_function
-from glob import glob
-from shutil import ExecError
-from urllib import response
 from google.protobuf.timestamp_pb2 import Timestamp
 import sys
-import matplotlib
 sys.path.append('proto')
 from nacl.signing import SigningKey
 import proto.vote_pb2_grpc as vote_grpc
@@ -20,28 +15,42 @@ from nacl.encoding import Base64Encoder
 tz = timezone(timedelta(hours=+8))
 primaryIP = ""
 backupIP  = ""
-stub = None
-channel = None
-backup_stub = None
-backup_channel = None
+stub = [None,None,None]
+channel = [None,None,None]
+connecting_server = 0
 
 def SetConnection(funcName, param):
-    global channel, stub, backup_stub, backup_channel
+    global stub, connecting_server
+    '''
     try:
-        grpc_call = getattr(stub, funcName)
+        grpc_call = getattr(stub[connecting_server], funcName)
         response = grpc_call(param)
-        print("[Client +] Successfully connecting to primary.")
+        print(f"[Client +] Successfully connecting to {connecting_server}.")
     except grpc._channel._InactiveRpcError:
-        print("[Client -] Failed to connect to primary")
+        print(f"[Client -] Failed to connect to {connecting_server}.")
         try:
-            grpc_call = getattr(backup_stub, funcName)
+            grpc_call = getattr(stub[-connecting_server], funcName)
             response = grpc_call(param)
-            print("[Client +] Successfully connecting to backup.")
+            print(f"[Client +] Successfully connecting to {-connecting_server}.")
         except grpc._channel._InactiveRpcError:
-            print("[Client -] Failed to connect to backup.")
+            print(f"[Client -] Failed to connect to {-connecting_server}.")
     except Exception as e:
         print("[Client -] SetConnection error: "+str(e))
-    
+    '''
+    while True:
+        try:
+            grpc_call = getattr(stub[connecting_server], funcName)
+            response = grpc_call(param)
+            print(f"[Client +] Successfully connecting to {connecting_server}.")
+            break
+        except grpc._channel._InactiveRpcError:
+            print(f"[Client -] Failed to connect to {connecting_server}.")
+            connecting_server = -connecting_server
+        except KeyboardInterrupt:
+            print("[Client] Keyboard Interrupt.")
+            break
+        except Exception as e:
+            print("[Client -] SetConnection error: "+str(e))
     return response
 
 class VoterClass:
@@ -77,29 +86,42 @@ class VoterClass:
         return
 
 
-    def Button_Login(self, name_var):
+    def Button_Login(self, name_var, serverNum):
+        global connecting_server
+        connecting_server = serverNum.get()
         self.voter_name = name_var.get()
+
         self.log_win.destroy()
 
 
     def InputName(self):
         self.log_win = tk.Tk()
         self.log_win.title("Login")
-        self.log_win.geometry('480x180')
+        self.log_win.geometry('480x240')
         # Input Voter name
         name_label = tk.Label(self.log_win, text='Your name:', font=("Arial", 16))
         name_label.place(relx=0.2, rely=0.2, relwidth=0.25, height=30)
         name_var = tk.StringVar()
         votername_textbox = tk.Entry(self.log_win, textvariable=name_var, font=('Arial 16'))
         votername_textbox.place(relx=0.45, rely=0.2, relwidth=0.3, height=30)
-        
-        btn1 = tk.Button(self.log_win, text="Login", command=lambda: self.Button_Login(name_var))
+        # Choose a server
+        server_label = tk.Label(self.log_win, text='Server:', font=("Arial", 16))
+        server_label.place(relx=0.2, rely=0.45, relwidth=0.25, height=30)
+        serverNum = tk.IntVar() 
+        rdioOne = tk.Radiobutton(self.log_win, text=' 1', variable=serverNum, value=1, 
+                                    height=20, width=10, indicatoron=0, font=('Arial 16'), selectcolor='#40E0D0') 
+        rdioOne.place(relx=0.5, rely=0.45, relwidth=0.1, height=30)
+        rdioTwo = tk.Radiobutton(self.log_win, text='-1', variable=serverNum, value=-1, 
+                                    height=20, width=10, indicatoron=0, font=('Arial 16'), selectcolor='#40E0D0')  
+        rdioTwo.place(relx=0.6, rely=0.45, relwidth=0.1, height=30)
+        rdioOne.select()
+
+        btn1 = tk.Button(self.log_win, text="Login", command=lambda: self.Button_Login(name_var, serverNum))
         btn1.place(relx=0.4, rely=0.7, relwidth=0.2, relheight=0.2)
         self.log_win.mainloop()
 
 
     def TryAuth(self):
-        global stub
         chall = SetConnection("PreAuth", vote.VoterName(name=self.voter_name))
         signed = self.signing_key.sign(chall.value)
         resp = vote.Response(value=signed)
@@ -112,7 +134,6 @@ class VoterClass:
 
     
     def Button_SendCreation(self, elecname_var, elecgroup_var, choices_var, etime_var):
-        global stub
         timestamp = Timestamp()
         dt = datetime.fromisoformat(etime_var.get()).astimezone(tz)
         timestamp.FromDatetime(dt)
@@ -187,7 +208,6 @@ class VoterClass:
 
 
     def Button_SendCast(self, elecname_var, choice_var):
-        global stub
         cast_info = vote.Vote(
             election_name = elecname_var.get(),
             choice_name = choice_var.get(),
@@ -265,7 +285,6 @@ class VoterClass:
         
 
     def Button_SendQuery(self, elecname_var):
-        global stub
         query_info = vote.ElectionName(name = elecname_var.get())
         
         result = SetConnection("GetResult", query_info)
@@ -337,10 +356,10 @@ if __name__ == '__main__':
     print((voter.verify_key.encode(encoder=Base64Encoder)).decode("utf-8"))
     print("Please register your info on the server.\nThen login in the popup window.")
 
-    channel = grpc.insecure_channel(primaryIP)
-    stub = vote_grpc.eVotingStub(channel)
-    backup_channel = grpc.insecure_channel(backupIP)
-    backup_stub = vote_grpc.eVotingStub(backup_channel)
+    channel[1] = grpc.insecure_channel(primaryIP)
+    stub[1] = vote_grpc.eVotingStub(channel[1])
+    channel[-1] = grpc.insecure_channel(backupIP)
+    stub[-1] = vote_grpc.eVotingStub(channel[-1])
     
     voter.InputName()
     voter.TryAuth()
@@ -348,7 +367,7 @@ if __name__ == '__main__':
 
 #TODO:
 # partition
-# client choose which server
+# 
 # NAK then do not sync
 # color
 # comment

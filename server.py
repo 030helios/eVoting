@@ -45,7 +45,6 @@ mutex = threading.Lock()
 ACK_res = -1
 
 def SyncSend(): 
-    print("SyncSend called.")
     global managerCONN
     global mutex, ACK_res
     try:
@@ -69,9 +68,9 @@ def SyncSend():
                 print("[Server -] SyncSend done but NAK.")
                 return 1
             elif ACK_res == 2: #restore
-                pass
+                print("[Server +] Restore to server "+("-1" if(is_primary) else "1")+".")
             else:
-                print("[Server -] Syncsend error: ACK response undefined.")
+                print(f"[Server -] Syncsend error: ACK response:{ACK_res} undefined.")
                 return 1
         else:
             print("[Server -] SyncSend error: ACK response timeout.")
@@ -81,7 +80,7 @@ def SyncSend():
         print("[Server -] SyncSend unexpected error: "+str(e))
         return 2
         
-def ManagerThread():    # loop forever recv()
+def ManagerThread():    # loop forever receive()
     global managerSOCK, managerCONN
     global Voters, Tokens, Challenges, Due, Elections, Ballots
     global is_primary
@@ -99,7 +98,6 @@ def ManagerThread():    # loop forever recv()
             if len(command) > 0:
                 command = command.decode()
                 op = command.split()[0]
-                print("----- op = "+op+" ------")
                 if op == "PRIMARY":
                     is_primary = 1
                     print("[Server +] Primary here")
@@ -122,7 +120,7 @@ def ManagerThread():    # loop forever recv()
                                 BallotTime[elect][votr] = synBallotTime[elect][votr]
                     managerCONN.send("ACK".encode())
                     print("[Server +] "+op+" success.")
-                    
+                    '''
                     print("store Voters : "+str(Voters))
                     print("store Tokens : "+str(Tokens))
                     print("store Challenges : "+str(Challenges))
@@ -131,18 +129,19 @@ def ManagerThread():    # loop forever recv()
                     print("store Ballots : "+str(Ballots))
                     print("store BallotTime : "+str(BallotTime))
                     print("--------")
-                    
+                    '''
                 elif op == "SyncSend":
                     ACK_res = 2
                     mutex.release()
                     SyncSend()
 
                 elif op == "ACK" or op == "NAK":
+                    if ACK_res == 2:
+                        ACK_res = -1
+                        continue
                     ACK_res = 1 if op == "ACK" else 0
-                    try:
+                    if mutex.locked():
                         mutex.release()
-                    except:
-                        pass
                 elif op == "restoreACK" or op == "restoreNAK":
                     print(f"[Server +] Restore response: {op}")
                 else:
