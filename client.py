@@ -35,16 +35,16 @@ def SetConnection(funcName, param):
         try:
             grpc_call = getattr(stub[connecting_server], funcName)
             response = grpc_call(param)
-            printc(f"[Client +] Successfully connecting to {connecting_server}.", 'green')
+            printc(f"[Client] Successfully connecting to {connecting_server}.", 'green')
             break
         except grpc._channel._InactiveRpcError:
-            printc(f"[Client -] Failed to connect to {connecting_server}.", 'red')
+            printc(f"[Client] Failed to connect to {connecting_server}.", 'red')
             connecting_server = -connecting_server
         except KeyboardInterrupt:
             print("[Client] Keyboard Interrupt.")
             break
         except Exception as e:
-            printc("[Client -] SetConnection error: "+str(e), 'red')
+            printc("[Client] SetConnection error: "+str(e), 'red')
     return response
 
 class VoterClass:
@@ -339,11 +339,8 @@ class VoterClass:
 
 if __name__ == '__main__':
     logging.basicConfig()
-    #primaryIP = input("IP:PORT for primary server : ")
-    #backupIP =  input("IP:PORT for backup  server : ")
-
-    primaryIP = "192.168.220.1:50051"
-    backupIP = "192.168.220.128:50051"
+    primaryIP = input("IP:PORT for primary server : ")
+    backupIP =  input("IP:PORT for backup  server : ")
 
     voter = VoterClass()
     print("Your public key:")

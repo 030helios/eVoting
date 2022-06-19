@@ -9,7 +9,7 @@ client:
 manager:
 	@python3 manager.py
 part:
-	sudo iptables -A OUTPUT -d 192.168.220.1 -j DROP
-	sudo iptables -I INPUT -s 192.168.220.1 -j DROP
+	sudo iptables -A OUTPUT -d $(IP) -j DROP
+	sudo iptables -I INPUT -s $(IP) -j DROP
 reconnect:
 	sudo iptables -F
